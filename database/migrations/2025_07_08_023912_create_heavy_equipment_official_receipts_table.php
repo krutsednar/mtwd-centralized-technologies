@@ -1,0 +1,32 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('heavy_equipment_official_receipts', function (Blueprint $table) {
+            $table->id();
+            $table->string('heavy_equipment_id')->nullable();
+            $table->string('or_no')->nullable();
+            $table->date('or_expiration')->nullable();
+            $table->string('or_file')->nullable();
+            $table->timestamps();
+            $table->softDeletes();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('heavy_equipment_official_receipts');
+    }
+};
