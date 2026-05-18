@@ -2,6 +2,7 @@
 
 return [
     App\Providers\AppServiceProvider::class,
+    App\Providers\FaceBiometricsServiceProvider::class,
     App\Providers\Filament\AdminPanelProvider::class,
     App\Providers\Filament\GsmsPanelProvider::class,
     App\Providers\Filament\HomePanelProvider::class,
