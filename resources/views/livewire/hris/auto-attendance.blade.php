@@ -122,7 +122,7 @@
     <div x-data="{ open: @entangle('showFailModal') }"
          x-show="open"
          x-transition:enter="transition ease-out duration-300"
-         x-init="$watch('open', value => { if(value) { setTimeout(() => window.location.href = '{{ url('attendance-mode') }}', 3000); } })"
+         x-init="$watch('open', value => { if(value) { new Audio('https://assets.mixkit.co/active_storage/sfx/955/955-preview.mp3').play(); setTimeout(() => window.location.href = '{{ url('attendance-mode') }}', 3000); } })"
          class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-red-950/95 backdrop-blur-xl" style="display: none;">
 
         <div class="bg-white rounded-[50px] shadow-2xl max-w-sm w-full p-12 text-center border-[12px] border-red-500 relative overflow-hidden">
@@ -139,7 +139,7 @@
     <div x-data="{ open: @entangle('showDuplicateModal') }"
          x-show="open"
          x-transition:enter="transition ease-out duration-300"
-         x-init="$watch('open', value => { if(value) { setTimeout(() => window.location.href = '{{ url('attendance-mode') }}', 3000); } })"
+         x-init="$watch('open', value => { if(value) { new Audio('https://assets.mixkit.co/active_storage/sfx/955/955-preview.mp3').play(); setTimeout(() => window.location.href = '{{ url('attendance-mode') }}', 3000); } })"
          class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-red-950/95 backdrop-blur-xl" style="display: none;">
 
         <div class="bg-white rounded-[50px] shadow-2xl max-w-sm w-full p-12 text-center border-[12px] border-red-500 relative overflow-hidden">

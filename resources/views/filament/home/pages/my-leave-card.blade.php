@@ -1,3 +1,3 @@
 <x-filament-panels::page>
-    @livewire('home.profile-viewer')
+    @livewire('home.leave-card-table')
 </x-filament-panels::page>

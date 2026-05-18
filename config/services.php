@@ -42,4 +42,9 @@ return [
         'token' => env('ONLINE_HRIS_TOKEN'),
     ],
 
+    'compreface' => [
+        'url' => env('COMPREFACE_URL'),
+        'key' => env('COMPREFACE_KEY'),
+    ],
+
 ];

@@ -1,3 +1,3 @@
 <x-filament-panels::page>
-    @livewire('home.profile-viewer')
+    @livewire('home.trainings-list')
 </x-filament-panels::page>

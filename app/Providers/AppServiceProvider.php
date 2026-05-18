@@ -5,6 +5,13 @@ namespace App\Providers;
 use App\Filament\Hris\Widgets\LeaveCardStats;
 use App\Http\Responses\LoginResponse;
 use App\Http\Responses\LogoutResponse;
+use App\Livewire\Home\HomeDtrViewer;
+use App\Livewire\Home\LeaveCardTable;
+use App\Livewire\Home\PerformanceCards;
+use App\Livewire\Home\ProfileViewer;
+use App\Livewire\Home\ServiceRecordTable;
+use App\Livewire\Home\TrainingsList;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Akira\FilamentSwitchPanel\FilamentSwitchPanel;
 use Livewire\Livewire;
@@ -27,7 +34,19 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        if (str_starts_with(config('app.url'), 'https')) {
+            URL::forceScheme('https');
+        }
+
         Livewire::component('app.filament.hris.widgets.leave-card-stats', LeaveCardStats::class);
+
+        // Home panel components
+        Livewire::component('home.profile-viewer',      ProfileViewer::class);
+        Livewire::component('home.home-dtr-viewer',     HomeDtrViewer::class);
+        Livewire::component('home.trainings-list',      TrainingsList::class);
+        Livewire::component('home.service-record-table', ServiceRecordTable::class);
+        Livewire::component('home.performance-cards',   PerformanceCards::class);
+        Livewire::component('home.leave-card-table',    LeaveCardTable::class);
 
         FilamentSwitchPanel::configureUsing(function (FilamentSwitchPanel $switchPanel) {
 

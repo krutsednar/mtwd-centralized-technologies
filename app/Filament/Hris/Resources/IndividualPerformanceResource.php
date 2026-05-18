@@ -159,7 +159,7 @@ class IndividualPerformanceResource extends Resource
                                     ->nullable(),
                             ])
                             ->addable(false)
-                            ->deletable(false)
+                            ->deletable(true)
                             ->reorderable(false)
                             ->columns(2),
                     ])
@@ -177,7 +177,15 @@ class IndividualPerformanceResource extends Resource
                             ->values()
                             ->toArray(),
                     ])
-                    ->action(function (array $data): void {
+                    ->action(function (Profile $record,array $data): void {
+                        // 2. Get the IDs currently submitted in the form
+                        $submittedIds = collect($data['performances'])->pluck('id')->filter()->toArray();
+
+                        // 3. Delete records that are no longer in the list
+                        $record->individualPerformances()
+                            ->whereNotIn('id', $submittedIds)
+                            ->delete();
+
                         foreach ($data['performances'] as $item) {
                             IndividualPerformance::find($item['id'])?->update([
                                 'ipc_attachment' => $item['ipc_attachment'],

@@ -1,3 +1,3 @@
 <x-filament-panels::page>
-    @livewire('home.profile-viewer')
+    @livewire('home.home-dtr-viewer')
 </x-filament-panels::page>

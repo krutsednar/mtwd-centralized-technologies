@@ -1,0 +1,310 @@
+================================================================================
+  HTTPS + LAN HOSTNAME SETUP GUIDE
+  App:    mtwd-centralized-technologies
+  Server: 192.168.0.58
+  Target: https://mct.lan (served to all LAN/VPN devices)
+  Updated: 2026-05-14
+================================================================================
+
+OVERVIEW
+--------
+Layer            Current                       Target
+---------------  ----------------------------  ----------------------------
+Port             1978                          443  (standard — no port in URL)
+Hostname         192.168.0.58                  mct.lan
+SSL cert covers  192.168.0.58                  mct.lan
+LAN DNS          —                             DONE via Sangfor SSL VPN
+APP_URL          https://192.168.0.58:1978     https://mct.lan
+
+
+WHY mct.lan INSTEAD OF mct.local
+---------------------------------
+.local is reserved for mDNS (Bonjour / Avahi — RFC 6762).
+Some OSes resolve .local via multicast before consulting DNS, which causes
+intermittent failures.  .lan is not reserved and has no such conflict —
+it is the standard choice for internal LAN hostnames.
+
+
+================================================================================
+STEP 1 — VERIFY PORT 443 IS FREE
+================================================================================
+
+On the server machine run:
+
+    netstat -ano | Select-String ":443 "
+
+If something is already listening on 443 (IIS, Apache httpd.exe, etc.) you must
+either stop that service or move it to another port before proceeding.
+You already confirmed httpd.exe owns port 80 — check that it does NOT also
+own 443 before going further.
+
+
+================================================================================
+STEP 2 — GENERATE A NEW SSL CERTIFICATE THAT COVERS mct.lan
+================================================================================
+
+Your current cert.pem / key.pem are issued to 192.168.0.58.
+A certificate only works for the names/IPs in its Subject Alternative Names (SAN).
+You need a new cert that says mct.lan.
+
+Recommended tool: mkcert
+  Creates a local CA your machines can trust — no browser "Not Secure" warning.
+
+------------------------------------------------------------
+2a. Install mkcert on the SERVER
+------------------------------------------------------------
+# Via Chocolatey (if installed):
+    choco install mkcert
+
+# Or download the Windows binary from:
+#   https://github.com/FiloSottile/mkcert/releases
+#   (mkcert-v*-windows-amd64.exe  →  rename to mkcert.exe, add to PATH)
+
+------------------------------------------------------------
+2b. Create and install the local CA (once per machine)
+------------------------------------------------------------
+    mkcert -install
+
+This adds a root CA to the Windows system trust store.
+Only needs to be done once on the server.
+
+------------------------------------------------------------
+2c. Issue the certificate for mct.lan
+------------------------------------------------------------
+Run from the project ssl/ folder:
+
+    cd "D:\System Development\Production Environment\mtwd-centralized-technologies\ssl"
+    mkcert mct.lan 192.168.0.58 localhost
+
+Output files:
+    mct.lan+2.pem       ← certificate
+    mct.lan+2-key.pem   ← private key
+
+Including 192.168.0.58 as a SAN means the IP URL still works as a fallback.
+
+
+================================================================================
+STEP 3 — TRUST THE CA ON EVERY CLIENT MACHINE
+================================================================================
+
+The CA file created by mkcert lives at:
+
+    mkcert -CAROOT
+    # Prints e.g.: C:\Users\MIST-KURTD\AppData\Local\mkcert
+
+Inside that folder is rootCA.pem.
+Distribute this file to every computer that needs to access mct.lan,
+then on each client:
+
+------------------------------------------------------------
+Windows clients
+------------------------------------------------------------
+  1. Double-click rootCA.pem  →  Install Certificate
+  2. Store location: Local Machine
+  3. Place in:       Trusted Root Certification Authorities
+
+Or via PowerShell (as Administrator):
+    Import-Certificate -FilePath "rootCA.pem" `
+        -CertStoreLocation Cert:\LocalMachine\Root
+
+------------------------------------------------------------
+macOS clients
+------------------------------------------------------------
+    sudo security add-trusted-cert -d -r trustRoot \
+        -k /Library/Keychains/System.keychain rootCA.pem
+
+------------------------------------------------------------
+Linux clients
+------------------------------------------------------------
+    sudo cp rootCA.pem /usr/local/share/ca-certificates/mct-lan-ca.crt
+    sudo update-ca-certificates
+
+------------------------------------------------------------
+Mobile / tablets
+------------------------------------------------------------
+  Android: Settings → Security → Install from storage → select rootCA.pem
+  iOS/iPadOS: AirDrop or email rootCA.pem, then:
+              Settings → General → VPN & Device Management → trust the profile
+
+
+================================================================================
+STEP 4 — LAN DNS  [DONE — Sangfor SSL VPN]
+================================================================================
+
+mct.lan → 192.168.0.58 is already configured in the Sangfor SSL VPN admin
+console.  Because Sangfor acts as the DNS server for the LAN (pushed via DHCP
+to all connected devices), every machine on the network — wired, wireless, and
+VPN-connected — resolves mct.lan automatically without any per-device hosts
+file changes.
+
+How to verify from any client on the LAN:
+
+    # Windows
+    nslookup mct.lan
+
+    # macOS / Linux
+    dig mct.lan
+
+Expected result:  Answer → 192.168.0.58
+
+------------------------------------------------------------
+If a device does NOT resolve mct.lan (fallback)
+------------------------------------------------------------
+Add one line to the OS hosts file on that machine:
+
+    192.168.0.58    mct.lan
+
+  OS              Location
+  Windows         C:\Windows\System32\drivers\etc\hosts  (run as Administrator)
+  macOS / Linux   /etc/hosts
+
+
+================================================================================
+STEP 5 — UPDATE nginx.conf
+================================================================================
+
+Changes needed:
+  • listen port:  1978  →  443
+  • ssl_certificate / ssl_certificate_key  →  new mkcert files
+  • server_name  →  mct.lan
+  • proxy_set_header Host  →  $host  (no port, 443 is implicit)
+  • Add port 80 redirect block (now safe — httpd.exe only owns 80 if Apache
+    is running; confirm it is stopped or moved first)
+
+------------------------------------------------------------
+nginx.conf  (replace your existing server block(s))
+------------------------------------------------------------
+
+    # HTTP → HTTPS redirect
+    server {
+        listen       192.168.0.58:80;
+        server_name  mct.lan;
+        return 301   https://$host$request_uri;
+    }
+
+    # HTTPS
+    server {
+        listen       192.168.0.58:443 ssl;
+        server_name  mct.lan;
+
+        ssl_certificate     "D:/System Development/Production Environment/mtwd-centralized-technologies/ssl/mct.lan+2.pem";
+        ssl_certificate_key "D:/System Development/Production Environment/mtwd-centralized-technologies/ssl/mct.lan+2-key.pem";
+
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        ssl_ciphers         HIGH:!aNULL:!MD5;
+
+        client_max_body_size 25M;
+        proxy_read_timeout   300;
+
+        location / {
+            proxy_pass          http://127.0.0.1:8001;
+            proxy_set_header    Host              $host;
+            proxy_set_header    X-Real-IP         $remote_addr;
+            proxy_set_header    X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header    X-Forwarded-Proto https;
+            proxy_set_header    X-Forwarded-Port  443;
+        }
+    }
+
+NOTE: If Apache httpd.exe still owns port 80, either stop it or remove the
+      port 80 redirect block entirely — nginx will refuse to start if port 80
+      is taken (you hit this before).
+
+
+================================================================================
+STEP 6 — UPDATE .env
+================================================================================
+
+    APP_URL=https://mct.lan
+    ASSET_URL=https://mct.lan
+
+Then clear all caches:
+
+    php artisan optimize:clear
+    php artisan config:clear
+
+
+================================================================================
+STEP 7 — OPEN PORT 443 IN WINDOWS FIREWALL
+================================================================================
+
+Run in an elevated PowerShell:
+
+    New-NetFirewallRule `
+        -DisplayName "nginx HTTPS 443" `
+        -Direction    Inbound `
+        -Protocol     TCP `
+        -LocalPort    443 `
+        -Action       Allow
+
+If you also add the port 80 redirect block, open port 80 too:
+
+    New-NetFirewallRule `
+        -DisplayName "nginx HTTP 80" `
+        -Direction    Inbound `
+        -Protocol     TCP `
+        -LocalPort    80 `
+        -Action       Allow
+
+
+================================================================================
+STEP 8 — RESTART NGINX AND LARAVEL
+================================================================================
+
+    php artisan optimize:clear
+    .\start-https.ps1
+
+Test from the server itself first:
+
+    # Should redirect to https://mct.lan
+    curl -I http://mct.lan
+
+    # Should return 200
+    curl -Ik https://mct.lan
+
+Then test from another device on the LAN by opening https://mct.lan in a browser.
+
+
+================================================================================
+CHECKLIST
+================================================================================
+
+  [DONE]   mct.lan → 192.168.0.58 configured in Sangfor SSL VPN DNS
+  [DONE]   Port 443 is free / XAMPP Apache already owns 443 (used as proxy)
+  [DONE]   mkcert installed on server
+  [DONE]   Local CA installed on server  (mkcert -install)
+  [DONE]   Cert generated: mct.lan+2.pem / mct.lan+2-key.pem
+  [DONE]   XAMPP httpd.conf: mod_proxy_http + mod_proxy_wstunnel enabled
+  [DONE]   XAMPP httpd-vhosts.conf: mct.lan VirtualHosts added (HTTP + HTTPS)
+  [DONE]   .env APP_URL=https://mct.lan  /  ASSET_URL=https://mct.lan
+  [DONE]   php artisan optimize:clear  run
+  [DONE]   https://mct.lan proxies correctly (tested from server — 302 to login)
+  [ ]      Apache restarted as admin to load HTTP→HTTPS redirect (see note below)
+  [ ]      rootCA.pem distributed and trusted on all client machines
+  [ ]      https://mct.lan opens without certificate warning on a client PC
+
+  NOTE: HTTP→HTTPS redirect (port 80) requires one admin-privileged Apache
+  restart to take effect.  Run either of these as Administrator:
+
+    # XAMPP Control Panel → Apache → Stop → Start
+    # OR in an elevated PowerShell / cmd:
+    net stop Apache2.4 && net start Apache2.4
+
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem                         Fix
+------------------------------  ------------------------------------------------
+nginx won't start               Run:  .\nginx.exe -t  in the nginx dir to see
+                                which config line is failing
+Port 443 in use                 netstat -ano | sls ":443" — find the PID, then
+                                tasklist /FI "PID eq <PID>" to identify the app
+Browser still shows warning     The client machine hasn't installed rootCA.pem.
+                                Re-run the import step on that machine.
+nslookup resolves but browser   Check that the cert SAN includes mct.lan exactly
+shows cert error                (no trailing dot, no wildcard needed).
+Can ping 192.168.0.58 but not   DNS not yet reaching that device — add the hosts
+mct.lan from a specific device  file entry (192.168.0.58  mct.lan) as fallback.
+================================================================================

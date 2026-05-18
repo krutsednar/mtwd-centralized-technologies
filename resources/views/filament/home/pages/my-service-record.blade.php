@@ -1,3 +1,3 @@
 <x-filament-panels::page>
-    @livewire('home.profile-viewer')
+    @livewire('home.service-record-table')
 </x-filament-panels::page>

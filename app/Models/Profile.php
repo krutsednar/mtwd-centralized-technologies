@@ -78,6 +78,11 @@ class Profile extends Model
         'pds',
         'division_id',
         'face_enrolled',
+        'face_descriptors',
+    ];
+
+    protected $casts = [
+        'face_descriptors' => 'array',
     ];
 
     public function getSexLabelAttribute($value)
