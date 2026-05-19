@@ -6,6 +6,8 @@ use App\Models\Profile;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Route;
 
+Route::view('/', 'welcome');
+
 Route::view('/attendance-mode', 'attendancemode');
 
 Route::get('/biometrics/{phase}', function ($phase) {
@@ -84,3 +86,13 @@ Route::get('/leave/print/{leaveApplication}', function (LeaveApplication $leaveA
 
     return view('leave-print', compact('leaveApplication'));
 })->name('leave.print');
+
+// ── Face Biometrics v2 (parallel system — do not modify legacy routes above) ──
+Route::prefix('face-biometrics')->name('face-biometrics.')->group(function () {
+    Route::get('/', \App\Livewire\FaceBiometrics\AttendanceKiosk::class)->name('index');
+    Route::middleware(['auth'])->group(function () {
+        Route::get('/enroll', \App\Livewire\FaceBiometrics\EnrollmentKiosk::class)->name('enroll');
+        Route::get('/health', [\App\Http\Controllers\FaceBiometrics\HealthController::class, '__invoke'])->name('health');
+        Route::get('/audit', \App\Livewire\FaceBiometrics\AuditLog::class)->name('audit');
+    });
+});
