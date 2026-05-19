@@ -6,6 +6,8 @@ use App\Models\Profile;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Route;
 
+Route::view('/', 'welcome');
+
 Route::view('/attendance-mode', 'attendancemode');
 
 Route::get('/biometrics/{phase}', function ($phase) {

@@ -10,6 +10,6 @@ class LogoutResponse implements Responsable
 {
     public function toResponse($request): RedirectResponse
     {
-        return Redirect::to('/login');
+        return Redirect::to('/');
     }
 }

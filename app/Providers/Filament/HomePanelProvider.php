@@ -28,7 +28,7 @@ class HomePanelProvider extends PanelProvider
     {
         return $panel
             ->id('home')
-            ->path('')
+            ->path('home')
             ->login(Login::class)
             ->favicon(asset('images/mios-offline.png'))
             ->colors([
