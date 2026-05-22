@@ -3,6 +3,7 @@
 namespace App\Livewire\FaceBiometrics;
 
 use App\Exceptions\FaceBiometricException;
+use App\Models\Attendance;
 use App\Models\FaceBiometrics\FaceAttendance;
 use App\Models\FaceBiometrics\FaceAuditLog;
 use App\Models\Profile;
@@ -104,17 +105,27 @@ class AttendanceKiosk extends Component
             return;
         }
 
+        $time = now()->format('H:i:s');
+
         FaceAttendance::updateOrCreate(
             ['employee_number' => $profile->employee_number, 'attendance_date' => $today],
             [
                 'profile_id' => $profile->id,
-                $field => now()->format('H:i:s'),
+                $field => $time,
                 'match_score' => $result->score,
                 'liveness_score' => $result->liveness,
                 'quality_score' => $result->quality,
                 'kiosk_id' => $this->kioskId,
                 'verification_method' => 'face_v2',
                 'top_match_margin' => $result->margin,
+            ]
+        );
+
+        Attendance::updateOrCreate(
+            ['employee_number' => $profile->employee_number, 'attendance_date' => $today],
+            [
+                'profile_id' => $profile->id,
+                $field => $time,
             ]
         );
 

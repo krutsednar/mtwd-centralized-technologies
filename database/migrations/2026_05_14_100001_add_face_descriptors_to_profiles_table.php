@@ -8,11 +8,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('profiles', 'face_descriptors')) {
+            return;
+        }
+
         Schema::table('profiles', function (Blueprint $table) {
             $table->jsonb('face_descriptors')->nullable()->after('face_enrolled');
-            // Stores an array of descriptor arrays:
-            // [[0.12, -0.34, ...128 floats], [...], [...]]
-            // Keep 3-5 descriptors per employee for better accuracy.
         });
     }
 

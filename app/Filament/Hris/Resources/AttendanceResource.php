@@ -16,7 +16,7 @@ class AttendanceResource extends Resource
 {
     protected static ?string $model = Profile::class;
 
-    protected static ?string $navigationGroup = 'Employee Management';
+    protected static ?string $navigationGroup = 'Attendance Management';
 
     protected static ?string $navigationIcon = 'fas-clock';
 

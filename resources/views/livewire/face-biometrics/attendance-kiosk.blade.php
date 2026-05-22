@@ -7,7 +7,7 @@
 
 {{-- Outer div is the Livewire root. Inner div owns Alpine to avoid $wire toJSON conflict. --}}
 <div>
-    <div class="flex flex-col min-h-screen overflow-x-hidden bg-slate-900"
+    <div class="flex flex-col min-h-screen overflow-x-hidden bg-white"
          x-data="faceBiometricsClock(@js([
              'modelUrl' => asset('vendor/face-api/weights'),
              'wireId'   => $this->getId(),
@@ -16,22 +16,22 @@
          wire:ignore>
 
         {{-- TOP BAR: Logo & System Time --}}
-        <div class="flex items-center justify-between px-6 py-4 border-b shadow-2xl bg-slate-900 border-slate-800 shrink-0">
+        <div class="flex items-center justify-between px-6 py-4 border-b shadow-2xl bg-white border-slate-800 shrink-0">
             <div class="flex items-center space-x-4">
                 <img src="https://moca.mtwd-kit.ph/img/logomtwd.png"
                      class="h-10 w-10 object-contain filter drop-shadow-[0_0_5px_rgba(59,130,246,0.5)]">
                 <div>
-                    <h1 class="text-sm font-black leading-none tracking-tighter text-white uppercase sm:text-xl">MTWD Face Terminal</h1>
+                    <h1 class="text-sm font-black leading-none tracking-tighter text-blue-800 uppercase sm:text-xl">MTWD Face Terminal</h1>
                     <div class="flex items-center mt-1 space-x-2">
                         <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <span class="text-[9px] font-bold text-blue-400 uppercase tracking-widest">Face Biometrics Attendance Monitoring System</span>
+                        <span class="text-[9px] font-bold text-blue-700 uppercase tracking-widest">Face Biometrics Attendance Monitoring System</span>
                     </div>
                 </div>
             </div>
 
             <div class="text-right">
-                <div class="font-mono text-xl font-black text-white sm:text-3xl" x-text="currentTime"></div>
-                <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ now()->format('l, F j') }}</div>
+                <div class="font-mono text-xl font-black text-black sm:text-3xl" x-text="currentTime"></div>
+                <div class="text-[10px] font-bold text-slate-800 uppercase tracking-widest">{{ now()->format('l, F j') }}</div>
             </div>
         </div>
 

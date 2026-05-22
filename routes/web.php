@@ -81,6 +81,47 @@ Route::get('/dtr/print/jo/{division}', function (\App\Models\Division $division)
     return view('dtr-jo-bulk-print', compact('division', 'profiles', 'month', 'year', 'cutoff', 'start', 'end', 'allAttendances'));
 })->name('dtr.print.jo');
 
+Route::get('/service-record/print/{profile}', function (Profile $profile) {
+    $profile->load('serviceRecords');
+    $serviceRecords = $profile->serviceRecords()->orderBy('from')->get();
+
+    // Render the repeating header and footer as standalone HTML temp files.
+    // wkhtmltopdf stamps them on every page via --header-html / --footer-html.
+    $headerHtml = view('pdf.service-record-header')->render();
+    $footerHtml = view('pdf.service-record-footer')->render();
+
+    $tmpDir = sys_get_temp_dir().DIRECTORY_SEPARATOR;
+    $tmpHeader = $tmpDir.'sr_hdr_'.uniqid().'.html';
+    $tmpFooter = $tmpDir.'sr_ftr_'.uniqid().'.html';
+
+    file_put_contents($tmpHeader, $headerHtml);
+    file_put_contents($tmpFooter, $footerHtml);
+
+    try {
+        return \PDF::loadView('pdf.service-record-body', compact('profile', 'serviceRecords'))
+            // 8.5 × 13 inch (Folio)
+            ->setOption('page-width', '215.9mm')
+            ->setOption('page-height', '330.2mm')
+            // Side gutters
+            ->setOption('margin-left', '12.7mm')
+            ->setOption('margin-right', '12.7mm')
+            // Top margin must be ≥ rendered header height + header-spacing
+            ->setOption('margin-top', '50mm')
+            ->setOption('header-html', $tmpHeader)
+            ->setOption('header-spacing', '3')
+            // Bottom margin must be ≥ rendered footer height + footer-spacing
+            ->setOption('margin-bottom', '18mm')
+            ->setOption('footer-html', $tmpFooter)
+            ->setOption('footer-spacing', '2')
+            // Allow reading local image files (file:/// paths in header/footer views)
+            ->setOption('enable-local-file-access', true)
+            ->inline('service-record-'.$profile->employee_number.'.pdf');
+    } finally {
+        @unlink($tmpHeader);
+        @unlink($tmpFooter);
+    }
+})->name('service-record.print');
+
 Route::get('/leave/print/{leaveApplication}', function (LeaveApplication $leaveApplication) {
     $leaveApplication->load('profile.division');
 

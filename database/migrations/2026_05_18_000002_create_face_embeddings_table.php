@@ -22,10 +22,10 @@ return new class extends Migration
         });
 
         // Temporarily include public in search_path so vector type is visible
-        DB::statement('SET search_path TO mct_devdb, public');
-        DB::statement('ALTER TABLE mct_devdb.face_embeddings ADD COLUMN embedding vector(512)');
-        DB::statement('CREATE INDEX face_embeddings_hnsw ON mct_devdb.face_embeddings USING hnsw (embedding vector_cosine_ops)');
-        DB::statement('SET search_path TO mct_devdb');
+        DB::statement('SET search_path TO mct_proddb, public');
+        DB::statement('ALTER TABLE mct_proddb.face_embeddings ADD COLUMN embedding vector(512)');
+        DB::statement('CREATE INDEX face_embeddings_hnsw ON mct_proddb.face_embeddings USING hnsw (embedding vector_cosine_ops)');
+        DB::statement('SET search_path TO mct_proddb');
     }
 
     public function down(): void
