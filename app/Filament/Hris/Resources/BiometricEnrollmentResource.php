@@ -7,7 +7,6 @@ use App\Models\BiometricEnrollment;
 use App\Models\Profile;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -25,7 +24,7 @@ class BiometricEnrollmentResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Biometric Enrollments';
 
-    protected static ?string $navigationGroup = 'Employee Management';
+    protected static ?string $navigationGroup = 'Attendance Management';
 
     protected static ?int $navigationSort = 20;
 
@@ -138,9 +137,9 @@ class BiometricEnrollmentResource extends Resource
                     ->modalHeading('Remove Biometric Enrollment')
                     ->modalDescription('This will delete the enrollment record and remove all associated faces from CompreFace. This cannot be undone.')
                     ->before(function (BiometricEnrollment $record): void {
-                        $profile        = $record->profile;
-                        $compreFaceUrl  = config('services.compreface.url');
-                        $compreFaceKey  = config('services.compreface.key');
+                        $profile = $record->profile;
+                        $compreFaceUrl = config('services.compreface.url');
+                        $compreFaceKey = config('services.compreface.key');
 
                         if (! $compreFaceUrl || ! $compreFaceKey || ! $profile) {
                             return;
@@ -187,7 +186,7 @@ class BiometricEnrollmentResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListBiometricEnrollments::route('/'),
+            'index' => Pages\ListBiometricEnrollments::route('/'),
             'create' => Pages\CreateBiometricEnrollment::route('/create'),
         ];
     }

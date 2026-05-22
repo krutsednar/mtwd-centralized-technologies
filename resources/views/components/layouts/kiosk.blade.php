@@ -8,7 +8,7 @@
     @livewireStyles
     @stack('head-scripts')
 </head>
-<body class="min-h-screen bg-gray-900">
+<body class="min-h-screen bg-white">
     {{ $slot }}
     @livewireScripts
     @stack('scripts')

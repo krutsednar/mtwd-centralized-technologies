@@ -9,6 +9,7 @@
         "php": "^8.2",
         "akira/filament-switch-panel": "^1.3",
         "asmit/filament-upload": "^1.0",
+        "barryvdh/laravel-snappy": "^1.0",
         "bezhansalleh/filament-shield": "^3.3",
         "blade-ui-kit/blade-heroicons": "^2.6",
         "filament/filament": "^3.3",
@@ -22,7 +23,8 @@
         "postare/blade-mdi": "^1.1",
         "pxlrbt/filament-excel": "^2.4",
         "rmsramos/activitylog": "^1.0",
-        "secondnetwork/blade-tabler-icons": "^3.34"
+        "secondnetwork/blade-tabler-icons": "^3.34",
+        "staudenmeir/laravel-adjacency-list": "^1.25"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

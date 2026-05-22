@@ -39,10 +39,10 @@ class FaceEmbedding extends Model
         $vectorLiteral = '['.implode(',', $vec).']';
 
         // Expand search_path so PostgreSQL can resolve the vector type from public schema
-        DB::statement('SET search_path TO mct_devdb, public');
+        DB::statement('SET search_path TO mct_proddb, public');
 
         DB::statement(
-            'INSERT INTO mct_devdb.face_embeddings
+            'INSERT INTO mct_proddb.face_embeddings
                 (face_profile_id, slot, quality_score, source, source_path, captured_at, embedding, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, NOW(), ?::vector, NOW(), NOW())
              ON CONFLICT (face_profile_id, slot) DO UPDATE
@@ -55,14 +55,14 @@ class FaceEmbedding extends Model
             [$faceProfileId, $slot, $quality, $source, $path, $vectorLiteral]
         );
 
-        DB::statement('SET search_path TO mct_devdb');
+        DB::statement('SET search_path TO mct_proddb');
     }
 
     public static function searchTopK(array $vec, int $k = 2): array
     {
         $vectorLiteral = '['.implode(',', $vec).']';
 
-        DB::statement('SET search_path TO mct_devdb, public');
+        DB::statement('SET search_path TO mct_proddb, public');
 
         // Use DISTINCT ON to get the best (closest) embedding per profile so a
         // profile with multiple templates does not dominate the top-K — otherwise
@@ -76,9 +76,9 @@ class FaceEmbedding extends Model
                     p.employee_number,
                     CONCAT(p.first_name, \' \', p.surname) AS full_name,
                     1 - (fe.embedding <=> ?::vector) AS score
-                FROM mct_devdb.face_embeddings fe
-                JOIN mct_devdb.face_profiles fp ON fp.id = fe.face_profile_id
-                JOIN mct_devdb.profiles p ON p.id = fp.profile_id
+                FROM mct_proddb.face_embeddings fe
+                JOIN mct_proddb.face_profiles fp ON fp.id = fe.face_profile_id
+                JOIN mct_proddb.profiles p ON p.id = fp.profile_id
                 WHERE fe.embedding IS NOT NULL
                 ORDER BY fp.profile_id, fe.embedding <=> ?::vector
             ) AS best_per_profile
@@ -87,7 +87,7 @@ class FaceEmbedding extends Model
             [$vectorLiteral, $vectorLiteral, $k]
         );
 
-        DB::statement('SET search_path TO mct_devdb');
+        DB::statement('SET search_path TO mct_proddb');
 
         return $results;
     }

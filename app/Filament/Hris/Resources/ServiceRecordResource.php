@@ -43,7 +43,7 @@ class ServiceRecordResource extends Resource
     {
         return Profile::query()
             ->get()
-            ->mapWithKeys(fn (Profile $p) => [$p->id => $p->employee_number . ' ' . $p->full_name])
+            ->mapWithKeys(fn (Profile $p) => [$p->id => $p->employee_number.' '.$p->full_name])
             ->toArray();
     }
 
@@ -124,6 +124,13 @@ class ServiceRecordResource extends Resource
                 //
             ])
             ->actions([
+                Tables\Actions\Action::make('print_service_record')
+                    ->label('Print')
+                    ->icon('heroicon-o-printer')
+                    ->color('success')
+                    ->url(fn (Profile $record) => route('service-record.print', $record))
+                    ->openUrlInNewTab(),
+
                 Tables\Actions\Action::make('view_service_records')
                     ->label('View')
                     ->icon('fas-id-card')
@@ -179,16 +186,16 @@ class ServiceRecordResource extends Resource
                             ->orderBy('from')
                             ->get()
                             ->map(fn (ServiceRecord $sr) => [
-                                'id'            => $sr->id,
-                                'from'          => $sr->from?->toDateString(),
-                                'to'            => $sr->to?->toDateString(),
-                                'agency'        => $sr->agency,
-                                'position'      => $sr->position,
-                                'status'        => $sr->status,
-                                'sg'            => $sr->sg,
-                                'salary'        => $sr->salary,
-                                'allowance'     => $sr->allowance,
-                                'remarks'       => $sr->remarks,
+                                'id' => $sr->id,
+                                'from' => $sr->from?->toDateString(),
+                                'to' => $sr->to?->toDateString(),
+                                'agency' => $sr->agency,
+                                'position' => $sr->position,
+                                'status' => $sr->status,
+                                'sg' => $sr->sg,
+                                'salary' => $sr->salary,
+                                'allowance' => $sr->allowance,
+                                'remarks' => $sr->remarks,
                                 'other_remarks' => $sr->other_remarks,
                             ])
                             ->values()
@@ -197,15 +204,15 @@ class ServiceRecordResource extends Resource
                     ->action(function (array $data): void {
                         foreach ($data['service_records'] as $item) {
                             ServiceRecord::find($item['id'])?->update([
-                                'from'          => $item['from'],
-                                'to'            => $item['to'],
-                                'agency'        => $item['agency'],
-                                'position'      => $item['position'],
-                                'status'        => $item['status'],
-                                'sg'            => $item['sg'],
-                                'salary'        => $item['salary'],
-                                'allowance'     => $item['allowance'],
-                                'remarks'       => $item['remarks'],
+                                'from' => $item['from'],
+                                'to' => $item['to'],
+                                'agency' => $item['agency'],
+                                'position' => $item['position'],
+                                'status' => $item['status'],
+                                'sg' => $item['sg'],
+                                'salary' => $item['salary'],
+                                'allowance' => $item['allowance'],
+                                'remarks' => $item['remarks'],
                                 'other_remarks' => $item['other_remarks'],
                             ]);
                         }

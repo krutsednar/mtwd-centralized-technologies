@@ -68,6 +68,7 @@
         <div class="relative w-[320px] h-[320px] rounded-2xl overflow-hidden bg-black shadow-2xl">
             <video id="enroll-video" class="w-full h-full object-cover scale-x-[-1]" autoplay playsinline muted></video>
             <canvas id="enroll-overlay" class="absolute inset-0 w-full h-full pointer-events-none scale-x-[-1]"></canvas>
+            <div id="enroll-flash" class="absolute inset-0 bg-white opacity-0 pointer-events-none" style="transition: opacity 0.05s ease-in, opacity 0.2s ease-out;"></div>
             <div class="absolute bottom-0 inset-x-0 bg-black/60 px-3 py-1 text-xs text-white text-center" x-text="statusMsg"></div>
         </div>
 
@@ -158,6 +159,11 @@ document.addEventListener('alpine:init', () => {
         manualCapture() {
             if (!this.qualityOk || this.capturing) return;
             this.capturing = true;
+
+            const flash = document.getElementById('enroll-flash');
+            flash.style.opacity = '1';
+            setTimeout(() => { flash.style.opacity = '0'; }, 80);
+
             const canvas = document.createElement('canvas');
             canvas.width = canvas.height = 640;
             canvas.getContext('2d').drawImage(this.videoEl, 0, 0, 640, 640);

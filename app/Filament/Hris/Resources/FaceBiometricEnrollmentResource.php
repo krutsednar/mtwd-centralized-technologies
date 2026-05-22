@@ -3,6 +3,7 @@
 namespace App\Filament\Hris\Resources;
 
 use App\Filament\Hris\Resources\FaceBiometricEnrollmentResource\Pages;
+use App\Filament\Hris\Resources\FaceBiometricEnrollmentResource\Widgets\FaceBiometricEnrollmentStats;
 use App\Models\FaceBiometrics\FaceAuditLog;
 use App\Models\FaceBiometrics\FaceProfile;
 use App\Services\FaceBiometricService;
@@ -26,7 +27,7 @@ class FaceBiometricEnrollmentResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Face Biometric Enrollments';
 
-    protected static ?string $navigationGroup = 'Employee Management';
+    protected static ?string $navigationGroup = 'Attendance Management';
 
     protected static ?int $navigationSort = 21;
 
@@ -106,6 +107,7 @@ class FaceBiometricEnrollmentResource extends Resource
 
                 Tables\Columns\TextColumn::make('enrollment_quality_score')
                     ->label('Quality')
+                    ->sortable()
                     ->formatStateUsing(fn ($state) => $state ? number_format($state, 2) : '—')
                     ->color(fn ($state) => match (true) {
                         $state >= 0.75 => 'success',
@@ -315,6 +317,13 @@ class FaceBiometricEnrollmentResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    public static function getWidgets(): array
+    {
+        return [
+            FaceBiometricEnrollmentStats::class,
+        ];
     }
 
     public static function getRelations(): array
