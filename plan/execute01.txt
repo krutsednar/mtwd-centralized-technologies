@@ -1,0 +1,152 @@
+# Execution Prompt — Phase 1 Audit Remediation
+
+> Paste this entire prompt into a fresh Claude session to begin execution.
+
+---
+
+You are continuing work on the `mct-staging` Laravel 12 / Filament 3 application. This is a **PRODUCTION ENVIRONMENT** running live payroll, attendance, biometric, and HR data. Treat every action with that gravity. A single mistake costs a day of recovery and trust.
+
+## Your assignment
+
+Execute **Phase 1 only** of the remediation plan documented at:
+```
+D:\System Development\Staging Environment\mct-staging\plan\instructions01.txt
+```
+
+That document is your single source of truth. It references audit findings at:
+```
+D:\System Development\Staging Environment\mct-staging\audit\findings01.txt
+```
+
+You do NOT have permission to start Phase 2 or Phase 3. Those require a separate authorization conversation after Phase 1 has shipped and been observed in production for 7+ days.
+
+---
+
+## Mandatory first steps (in order — do not skip, do not reorder)
+
+1. **Read `audit/findings01.txt` end to end.** Internalise the domain map (§ 2), every finding ID (§ 3), the phased plan (§ 4), the risks (§ 5), and the open questions (§ 6). Do NOT skim.
+2. **Read `plan/instructions01.txt` end to end.** Pay particular attention to:
+   - § 0 — Hard Operating Rules (inviolable)
+   - § 0.2 — Destructive-operation policy
+   - § 0.3 — Pre-flight checklist
+   - § 5 — Standing restrictions
+   - § 6 — Emergency procedures
+   - § 7 — Sign-off conditions
+3. **Confirm pre-flight (§ 0.3 of instructions01.txt). Run these and paste output:**
+   - `git status` — must be clean
+   - `git branch --show-current` — must NOT be `main`, `master`, or `production`
+   - `git log -1 --oneline` — record starting commit SHA
+   - `php artisan about` — must succeed
+4. **Ask the human, verbatim:**
+   > "Pre-flight complete. Before I begin: is there a fresh database backup taken within the last 60 minutes? Answer yes or no. If no, I will halt until one is taken. Also confirm I am on a feature branch (not main/master/production)."
+5. **Wait for the human's explicit written backup confirmation and branch confirmation.** Do not proceed without both.
+
+---
+
+## Open Questions gate (must be answered BEFORE any code change)
+
+Three Open Questions from audit § 6 block Phase 1 tasks:
+
+| Q | Blocks task(s) | Brief |
+|---|---|---|
+| Q1 | Task 1.1 | Should sections be nestable under Section, or only directly under Division? |
+| Q2 | Tasks 1.2, 1.3 | Should we retire the legacy CompreFace v1 system entirely? |
+| Q5 | Task 1.1 | For `divisions.type`: ALTER existing PG enum to add `'section'`, OR convert column to varchar with a CHECK constraint? |
+
+After pre-flight passes, ask the human all three Open Questions verbatim as written in instructions01.txt § 1 Task 1.1.0 and Task 1.2.1. Wait for written answers to all three before touching any code.
+
+---
+
+## Execution loop (the only loop you may run for Phase 1)
+
+For each task **1.1 through 1.11** in `plan/instructions01.txt` § 1, **strictly in order**:
+
+1. Re-read the task's section in instructions01.txt.
+2. Run the task's sub-steps exactly as written.
+3. For any migration: `php artisan migrate --pretend` → paste the SQL → **wait for written approval** → run for real.
+4. Run the task's verification step. Paste actual output.
+5. Run `vendor/bin/pint --dirty`.
+6. Stage and commit. Commit message format:
+   ```
+   audit: address finding <ID> — <short title>
+
+   Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+   ```
+7. **Stop and report.** Post:
+   - Task ID + finding IDs addressed
+   - `git diff --stat` output
+   - Verification command(s) + output
+   - Migration `--pretend` SQL if applicable
+   - One-line risk note
+8. **Wait for explicit human approval** before starting the next task. Do not chain tasks.
+9. After every 3rd task, post a running summary of merged vs pending finding IDs.
+
+Repeat until all 11 tasks are complete.
+
+---
+
+## Inviolable rules (full list in instructions01.txt § 0; here are the absolute non-negotiables)
+
+- **One task = one commit.** No mega-commits.
+- **No destructive operations** without an explicit human directive in the conversation naming the operation. Forbidden list includes (non-exhaustive):
+  - `git reset --hard`, `git push --force`, `git branch -D`, `git checkout -- .`, `git clean -fd`
+  - `--no-verify` on any commit or push
+  - `--force` on any migration command
+  - `php artisan migrate:fresh`, `migrate:reset`, `db:wipe`, `db:seed` on production
+  - `composer require`, `composer remove`, `composer update`
+  - `npm install <pkg>`, `npm update`
+  - Direct edits to `.env`, `composer.lock`, `package-lock.json`, `bootstrap/cache/*`, `vendor/*`, `storage/app/*`, `database/seeders/*`, `tests/Pest.php`, `tests/TestCase.php`
+- **No skipping approval gates.** Phase 1 only. Phases 2 and 3 require separate written authorization.
+- **No assuming Laravel/Filament/Livewire API behavior from training data.** Use Laravel Boost MCP (`search-docs`, `tinker`, `database-query`, `database-schema`, `list-artisan-commands`, `get-absolute-url`) to verify.
+- **No merging your own PR.** Human reviews and merges.
+- **Quote file paths with line numbers** when citing findings (e.g. `app/Models/Profile.php:113`).
+- **Paste actual command output.** Do not paraphrase, do not summarise, do not abbreviate.
+
+---
+
+## Communication contract
+
+- **Terse, factual, no filler.** No "I'll definitely make sure to..." No marketing language. No emojis.
+- **Cite findings by ID** (M-1, C-1, V-2, etc.).
+- **When in doubt, stop and ask.** The cost of a clarifying question is zero. The cost of a wrong assumption in production is a day of recovery.
+- **If anything is unclear in the instructions:** stop, quote the unclear passage, and ask for clarification before proceeding.
+- **If your verification step fails:** stop immediately, follow the task's rollback procedure, report.
+- **If production breaks:** trigger Emergency Procedure § 6.1 of instructions01.txt. Stop all work. Revert. Report.
+
+---
+
+## Phase 1 completion criteria (instructions01.txt § 2)
+
+You are NOT done until ALL of the following are true:
+
+- [ ] Task 1.1 — `divisions.type` accepts `'section'` (verified with tinker)
+- [ ] Task 1.2 — Zero `env()` calls outside `config/` (grep returns empty for `app/`)
+- [ ] Task 1.3 — Dead code deleted OR explicitly retained per Q2 decision
+- [ ] Task 1.4 — `VehicleInsurace` renamed; M-6 filename rename decision recorded
+- [ ] Task 1.5 — All 7 indexes added (or skipped if pre-existing, verified in `pg_indexes`)
+- [ ] Task 1.6 — `CustomAccountWidget` moved to `App\Shared\Filament\Widgets`
+- [ ] Task 1.7 — HRIS panel has `FilamentEditProfilePlugin`
+- [ ] Task 1.8 — 5 invokable controllers replace route closures (route names preserved)
+- [ ] Task 1.9 — All 6 listed models use `casts()` method
+- [ ] Task 1.10 — `Profile` has camelCase relationship methods (snake_case retained as `@deprecated`)
+- [ ] Task 1.11 — All relationship methods have return type hints
+- [ ] `vendor/bin/pint` reports clean
+- [ ] Smoke test: all four panels (`/admin`, `/hris`, `/gsms`, `/home`) load with no 500
+- [ ] Every commit message follows `audit: address finding <ID> — <title>` format
+- [ ] One PR open titled `Phase 1: address audit findings 01`
+- [ ] PR description lists every finding ID resolved + rollback plan + every migration added + before/after EXPLAIN ANALYZE for index migrations
+
+When all boxes are checked, post the full sign-off report per instructions01.txt § 7 (10 items: findings resolved, migrations added, files added, files removed, files renamed/moved, verification log, deferred risks, Open Questions answered, smoke test result, PR link). Then **STOP**. Wait for explicit human merge approval. Do NOT begin Phase 2.
+
+---
+
+## Begin now
+
+Your first action is to read `audit/findings01.txt` in full. Your second is to read `plan/instructions01.txt` in full. Your third is to run the pre-flight checklist (§ 0.3) and ask the backup question. Do not write any code, do not run any migration, do not make any commit until both documents have been read and pre-flight is confirmed by the human.
+
+Acknowledge this prompt by replying with:
+1. Confirmation that you have read this execution prompt
+2. The two files you are about to read (paths)
+3. The next action you will take after reading them
+
+Then begin.

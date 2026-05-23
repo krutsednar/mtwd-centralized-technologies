@@ -37,8 +37,10 @@ class HrisPanelProvider extends PanelProvider
             ->pages([
                 Pages\Dashboard::class,
             ])
+            ->discoverWidgets(in: app_path('Filament/Hris/Widgets'), for: 'App\\Filament\\Hris\\Widgets')
             ->widgets([
                 \App\Filament\Home\Resources\HomeResource\Widgets\CustomAccountWidget::class,
+                \App\Filament\Hris\Resources\FaceBiometricEnrollmentResource\Widgets\FaceBiometricEnrollmentStats::class,
             ])
             ->userMenuItems([
                 MenuItem::make()

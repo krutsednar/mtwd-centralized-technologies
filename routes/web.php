@@ -8,6 +8,25 @@ use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome');
 
+/**
+ * Shared edit-profile redirect — all panel user menus link here.
+ * Detects the originating panel from the referrer and forwards to the
+ * correct panel-specific route (HRIS has no plugin so it falls back to home).
+ */
+Route::get('/edit-profile', function () {
+    $previous = url()->previous('');
+
+    if (str_contains($previous, '/gsms')) {
+        return redirect('/gsms/edit-profile');
+    }
+
+    if (str_contains($previous, '/hris') || str_contains($previous, '/home')) {
+        return redirect('/home/edit-profile');
+    }
+
+    return redirect('/admin/edit-profile');
+})->middleware('auth');
+
 Route::view('/attendance-mode', 'attendancemode');
 
 Route::get('/biometrics/{phase}', function ($phase) {

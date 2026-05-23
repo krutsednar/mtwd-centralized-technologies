@@ -21,7 +21,7 @@ class FaceBiometricEnrollmentResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-sparkles';
 
-    protected static ?string $navigationLabel = 'Face Biometric Enrollment (v2)';
+    protected static ?string $navigationLabel = 'Face Biometric Enrollment';
 
     protected static ?string $modelLabel = 'Face Biometric Enrollment';
 
