@@ -2,35 +2,32 @@
 
 namespace App\Filament\Gsms\Resources;
 
+use App\Filament\Gsms\Resources\VehicleResource\Pages;
+use App\Livewire\Gsms\VehicleInsurance;
+use App\Livewire\Gsms\VehicleOfficialReceipts;
+use App\Models\Division;
+use App\Models\Vehicle;
+use App\Models\VehicleType;
 use Carbon\Carbon;
 use Filament\Forms;
-use Filament\Tables;
-use App\Models\Vehicle;
-use Filament\Forms\Get;
-use App\Models\Division;
-use Filament\Forms\Form;
-use Filament\Tables\Table;
-use App\Models\VehicleType;
-use Filament\Resources\Resource;
-use Filament\Tables\Actions\Action;
-use App\Livewire\Gsms\VehicleInsurace;
 use Filament\Forms\Components\Repeater;
-use Illuminate\Support\Facades\Storage;
-use Filament\Infolists\Components\Split;
-use Illuminate\Database\Eloquent\Builder;
 use Filament\Forms\Components\Wizard\Step;
-use Filament\Infolists\Components\Section;
-use Filament\Tables\Enums\ActionsPosition;
-use Filament\Infolists\Components\Livewire;
+use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Infolists\Components\IconEntry;
+use Filament\Infolists\Components\Livewire;
+use Filament\Infolists\Components\Section;
+use Filament\Infolists\Components\Split;
 use Filament\Infolists\Components\TextEntry;
-use pxlrbt\FilamentExcel\Exports\ExcelExport;
-use App\Livewire\Gsms\VehicleOfficialReceipts;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
-use pxlrbt\FilamentExcel\Actions\Tables\ExportAction;
-use App\Filament\Gsms\Resources\VehicleResource\Pages;
+use Filament\Resources\Resource;
+use Filament\Tables;
+use Filament\Tables\Actions\Action;
+use Filament\Tables\Enums\ActionsPosition;
+use Filament\Tables\Table;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
-use App\Filament\Gsms\Resources\VehicleResource\RelationManagers;
+use pxlrbt\FilamentExcel\Actions\Tables\ExportAction;
+use pxlrbt\FilamentExcel\Exports\ExcelExport;
 
 class VehicleResource extends Resource
 {
@@ -129,7 +126,9 @@ class VehicleResource extends Resource
                     ->label('Aging')
                     ->getStateUsing(fn ($record) => $record->date_acquired)
                     ->formatStateUsing(function ($state) {
-                        if (!$state) return '-';
+                        if (! $state) {
+                            return '-';
+                        }
 
                         $dateAcquired = Carbon::parse($state);
                         $now = Carbon::now();
@@ -160,7 +159,7 @@ class VehicleResource extends Resource
                     ->action(
                         \Hugomyb\FilamentMediaAction\Tables\Actions\MediaAction::make('cr_file')
                             ->iconButton()
-                            ->media(fn($record) => Storage::url($record->cr_file)),
+                            ->media(fn ($record) => Storage::url($record->cr_file)),
                     )
                     ->alignCenter()
                     ->tooltip('View Certificate of Registration')
@@ -174,12 +173,11 @@ class VehicleResource extends Resource
                     ->action(
                         \Hugomyb\FilamentMediaAction\Tables\Actions\MediaAction::make('chasis_file')
                             ->iconButton()
-                            ->media(fn($record) => Storage::url($record->chasis_file)),
+                            ->media(fn ($record) => Storage::url($record->chasis_file)),
                     )
                     ->alignCenter()
                     ->tooltip('View Stencil')
                     ->toggleable(),
-
 
                 Tables\Columns\TextColumn::make('policy_no')
                     ->label('Policy No.')
@@ -192,14 +190,12 @@ class VehicleResource extends Resource
                     ->label('Policy File')
                     ->trueIcon('fas-file-alt')
                     ->color('info')
-                     ->getStateUsing(fn($record) =>
-                        !empty($record->insurancePolicies()->latest()->first()?->policy_file)
+                    ->getStateUsing(fn ($record) => ! empty($record->insurancePolicies()->latest()->first()?->policy_file)
                     )
                     ->action(
                         \Hugomyb\FilamentMediaAction\Tables\Actions\MediaAction::make('policy_file')
                             ->iconButton()
-                            ->media(fn($record) =>
-                                optional($record->insurancePolicies()->latest()->first())
+                            ->media(fn ($record) => optional($record->insurancePolicies()->latest()->first())
                                     ? Storage::url($record->insurancePolicies()->latest()->first()->policy_file)
                                     : null
                             ),
@@ -218,14 +214,12 @@ class VehicleResource extends Resource
                     ->label('OR File')
                     ->trueIcon('fas-file-alt')
                     ->color('info')
-                     ->getStateUsing(fn($record) =>
-                        !empty($record->officialReceipts()->latest()->first()?->or_file)
+                    ->getStateUsing(fn ($record) => ! empty($record->officialReceipts()->latest()->first()?->or_file)
                     )
                     ->action(
                         \Hugomyb\FilamentMediaAction\Tables\Actions\MediaAction::make('or_file')
                             ->iconButton()
-                            ->media(fn($record) =>
-                                optional($record->officialReceipts()->latest()->first())
+                            ->media(fn ($record) => optional($record->officialReceipts()->latest()->first())
                                     ? Storage::url($record->officialReceipts()->latest()->first()->or_file)
                                     : null
                             ),
@@ -266,236 +260,238 @@ class VehicleResource extends Resource
                     ->modalSubmitAction(false)
                     ->infolist([
                         Section::make('Heavy Equipment Details')
-                        ->schema([
-                            TextEntry::make('vehicleType.name'),
-                            TextEntry::make('brand'),
-                            TextEntry::make('model'),
-                            TextEntry::make('serial_number'),
-                            TextEntry::make('date_acquired')
-                                ->date('F d, Y'),
-                            TextEntry::make('value')
-                                ->label('Acquisition Cost')
-                                ->money('PHP'),
-                            TextEntry::make('certificate_of_registration'),
-                            TextEntry::make('chasis_no'),
-                            TextEntry::make('engine_no'),
-                            TextEntry::make('plate_no'),
-                            TextEntry::make('par_no'),
-                            TextEntry::make('division.name')
-                                ->label('Division'),
-                            TextEntry::make('profile.full_name')
-                                ->label('Custodian'),
-                            IconEntry::make('cr_file')
-                                ->label('CR File')
-                                ->tooltip('View file')
-                                ->icon('fas-file-alt') // or any FontAwesome icon
-                                ->url(fn($record) => $record->cr_file ? Storage::url($record->cr_file) : null)
-                                ->openUrlInNewTab()
-                                ->color('info') // optional: blue color
-                                ->visible(fn($record) => !empty($record->cr_file)),
-                            IconEntry::make('chasis_file')
-                                ->label('Stencil File')
-                                ->tooltip('View file')
-                                ->icon('fas-file-alt') // or any FontAwesome icon
-                                ->url(fn($record) => $record->chasis_file ? Storage::url($record->chasis_file) : null)
-                                ->openUrlInNewTab()
-                                ->color('info') // optional: blue color
-                                ->visible(fn($record) => !empty($record->chasis_file)),
-                            TextEntry::make('aging')
-                                ->label('Aging')
-                                ->getStateUsing(fn ($record) => $record->date_acquired)
-                                ->formatStateUsing(function ($state) {
-                                    if (!$state) return '-';
+                            ->schema([
+                                TextEntry::make('vehicleType.name'),
+                                TextEntry::make('brand'),
+                                TextEntry::make('model'),
+                                TextEntry::make('serial_number'),
+                                TextEntry::make('date_acquired')
+                                    ->date('F d, Y'),
+                                TextEntry::make('value')
+                                    ->label('Acquisition Cost')
+                                    ->money('PHP'),
+                                TextEntry::make('certificate_of_registration'),
+                                TextEntry::make('chasis_no'),
+                                TextEntry::make('engine_no'),
+                                TextEntry::make('plate_no'),
+                                TextEntry::make('par_no'),
+                                TextEntry::make('division.name')
+                                    ->label('Division'),
+                                TextEntry::make('profile.full_name')
+                                    ->label('Custodian'),
+                                IconEntry::make('cr_file')
+                                    ->label('CR File')
+                                    ->tooltip('View file')
+                                    ->icon('fas-file-alt') // or any FontAwesome icon
+                                    ->url(fn ($record) => $record->cr_file ? Storage::url($record->cr_file) : null)
+                                    ->openUrlInNewTab()
+                                    ->color('info') // optional: blue color
+                                    ->visible(fn ($record) => ! empty($record->cr_file)),
+                                IconEntry::make('chasis_file')
+                                    ->label('Stencil File')
+                                    ->tooltip('View file')
+                                    ->icon('fas-file-alt') // or any FontAwesome icon
+                                    ->url(fn ($record) => $record->chasis_file ? Storage::url($record->chasis_file) : null)
+                                    ->openUrlInNewTab()
+                                    ->color('info') // optional: blue color
+                                    ->visible(fn ($record) => ! empty($record->chasis_file)),
+                                TextEntry::make('aging')
+                                    ->label('Aging')
+                                    ->getStateUsing(fn ($record) => $record->date_acquired)
+                                    ->formatStateUsing(function ($state) {
+                                        if (! $state) {
+                                            return '-';
+                                        }
 
-                                    $dateAcquired = Carbon::parse($state);
-                                    $now = Carbon::now();
-                                    $diff = $dateAcquired->diff($now);
+                                        $dateAcquired = Carbon::parse($state);
+                                        $now = Carbon::now();
+                                        $diff = $dateAcquired->diff($now);
 
-                                    return "{$diff->y} yrs, {$diff->m} mos, {$diff->d} days";
-                                }),
-                            TextEntry::make('status')
-                                ->badge()
-                                ->color(fn (string $state): string => match ($state) {
-                                    'Good Running Condition' => 'success',
-                                    'Running Condition' => 'warning',
-                                    'Unserviceable' => 'danger',
-                                    default => 'gray', // 👈 fallback color
-                                }),
-                        ])->columns(6),
-                            Split::make([
-                                Section::make('Official Receipts')
+                                        return "{$diff->y} yrs, {$diff->m} mos, {$diff->d} days";
+                                    }),
+                                TextEntry::make('status')
+                                    ->badge()
+                                    ->color(fn (string $state): string => match ($state) {
+                                        'Good Running Condition' => 'success',
+                                        'Running Condition' => 'warning',
+                                        'Unserviceable' => 'danger',
+                                        default => 'gray', // 👈 fallback color
+                                    }),
+                            ])->columns(6),
+                        Split::make([
+                            Section::make('Official Receipts')
                                 ->schema([
-                                        Livewire::make(VehicleOfficialReceipts::class)
+                                    Livewire::make(VehicleOfficialReceipts::class),
                                 ]),
-                                Section::make('Insurance Policies')
+                            Section::make('Insurance Policies')
                                 ->schema([
-                                        Livewire::make(VehicleInsurace::class)
+                                    Livewire::make(VehicleInsurance::class),
                                 ]),
-                            ])
                         ]),
+                    ]),
                 Tables\Actions\EditAction::make()
-                ->modalWidth('7xl')
-                ->size('xl')
-                ->label('')
-                ->tooltip('Edit Record')
-                ->closeModalByClickingAway(false)
-                ->steps([
-                    Step::make('Vehicle Information')
-                        ->columns([
-                            'sm' => 3,
-                            'xl' => 3,
-                            '2xl' => 3,
-                        ])
-                        ->schema([
-                            Forms\Components\Select::make('vehicle_type_id')
-                                ->label('Vehicle Type')
-                                ->options(VehicleType::pluck('name', 'id'))
-                                ->default(null),
-                            Forms\Components\TextInput::make('brand')
-                                ->maxLength(255)
-                                ->default(null),
-                            Forms\Components\TextInput::make('model')
-                                ->maxLength(255)
-                                ->default(null),
-                            Forms\Components\TextInput::make('value')
-                                ->label('Acquisition Cost')
-                                ->numeric()
-                                ->prefix('₱ ')
-                                ->default(null),
-                            Forms\Components\TextInput::make('serial_number')
-                                ->required()
-                                ->maxLength(255),
-                            Forms\Components\TextInput::make('engine_no')
-                                ->maxLength(255)
-                                ->default(null),
-                            Forms\Components\TextInput::make('certificate_of_registration')
-                                ->maxLength(255)
-                                ->default(null),
-                            Forms\Components\TextInput::make('chasis_no')
-                                ->maxLength(255)
-                                ->default(null),
-                            Forms\Components\TextInput::make('plate_no')
-                                ->maxLength(255)
-                                ->default(null),
-                            // Forms\Components\TextInput::make('cr_file')
-                            //     ->maxLength(255)
-                            //     ->default(null),
-                            Forms\Components\FileUpload::make('cr_file')
-                            ->label('Upload Certificate of Registration')
-                            ->directory('cr_files')
-                            ->getUploadedFileNameForStorageUsing(
-                                fn (TemporaryUploadedFile $file): string => (string) str($file->getClientOriginalName())
-                                    ->prepend(''),
-                            ),
-
-                            // Forms\Components\TextInput::make('chasis_file')
-                            //     ->maxLength(255)
-                            //     ->default(null),
-                            Forms\Components\FileUpload::make('chasis_file')
-                            ->label('Upload Stencil')
-                            ->directory('chasis_files')
-                            ->getUploadedFileNameForStorageUsing(
-                                fn (TemporaryUploadedFile $file): string => (string) str($file->getClientOriginalName())
-                                    ->prepend(''),
-                            ),
-
-                            Forms\Components\DatePicker::make('date_acquired')
-                                ->native(false)
-                                ->displayFormat('F d, Y'),
-                            Forms\Components\TextInput::make('par_no')
-                                ->maxLength(255)
-                                ->default(null),
-                            Forms\Components\Select::make('division_id')
-                                ->label('Division')
-                                ->options(Division::pluck('name', 'id'))
-                                ->searchable()
-                                ->reactive()
-                                ->live()
-                                ->required(),
-                            Forms\Components\Select::make('custodian')
-                                ->options(fn (Get $get) => \App\Models\Profile::where('division_id', $get('division_id'))
-                                    ->get()
-                                    ->pluck('full_name', 'id'))
-                                ->label('Custodian')
-                                ->searchable(),
-                            Forms\Components\Select::make('status')
-                                ->options([
-                                    'Good Running Condition' => 'Good Running Condition',
-                                    'Running Condition' => 'Running Condition',
-                                    'Unserviceable' => 'Unserviceable',
-                                ]),
-                            Forms\Components\Textarea::make('description')
-                                ->columnSpanFull(),
-                            Forms\Components\Textarea::make('remarks')
-                                ->columnSpanFull(),
-
-                        ]),
-                    Step::make('Official Receipts')
-                        ->schema([
-                            Repeater::make('officialReceipts')
-                            ->relationship()
-                            // Changed this from `->columns(2)` to `->columns(3)`
+                    ->modalWidth('7xl')
+                    ->size('xl')
+                    ->label('')
+                    ->tooltip('Edit Record')
+                    ->closeModalByClickingAway(false)
+                    ->steps([
+                        Step::make('Vehicle Information')
                             ->columns([
-                                'sm' => 4,
-                                'xl' => 4,
-                                '2xl' => 4,
+                                'sm' => 3,
+                                'xl' => 3,
+                                '2xl' => 3,
                             ])
                             ->schema([
-                                Forms\Components\TextInput::make('or_no')
+                                Forms\Components\Select::make('vehicle_type_id')
+                                    ->label('Vehicle Type')
+                                    ->options(VehicleType::pluck('name', 'id'))
+                                    ->default(null),
+                                Forms\Components\TextInput::make('brand')
                                     ->maxLength(255)
                                     ->default(null),
-                                Forms\Components\DatePicker::make('or_expiration')
+                                Forms\Components\TextInput::make('model')
+                                    ->maxLength(255)
+                                    ->default(null),
+                                Forms\Components\TextInput::make('value')
+                                    ->label('Acquisition Cost')
+                                    ->numeric()
+                                    ->prefix('₱ ')
+                                    ->default(null),
+                                Forms\Components\TextInput::make('serial_number')
+                                    ->required()
+                                    ->maxLength(255),
+                                Forms\Components\TextInput::make('engine_no')
+                                    ->maxLength(255)
+                                    ->default(null),
+                                Forms\Components\TextInput::make('certificate_of_registration')
+                                    ->maxLength(255)
+                                    ->default(null),
+                                Forms\Components\TextInput::make('chasis_no')
+                                    ->maxLength(255)
+                                    ->default(null),
+                                Forms\Components\TextInput::make('plate_no')
+                                    ->maxLength(255)
+                                    ->default(null),
+                                // Forms\Components\TextInput::make('cr_file')
+                                //     ->maxLength(255)
+                                //     ->default(null),
+                                Forms\Components\FileUpload::make('cr_file')
+                                    ->label('Upload Certificate of Registration')
+                                    ->directory('cr_files')
+                                    ->getUploadedFileNameForStorageUsing(
+                                        fn (TemporaryUploadedFile $file): string => (string) str($file->getClientOriginalName())
+                                            ->prepend(''),
+                                    ),
+
+                                // Forms\Components\TextInput::make('chasis_file')
+                                //     ->maxLength(255)
+                                //     ->default(null),
+                                Forms\Components\FileUpload::make('chasis_file')
+                                    ->label('Upload Stencil')
+                                    ->directory('chasis_files')
+                                    ->getUploadedFileNameForStorageUsing(
+                                        fn (TemporaryUploadedFile $file): string => (string) str($file->getClientOriginalName())
+                                            ->prepend(''),
+                                    ),
+
+                                Forms\Components\DatePicker::make('date_acquired')
                                     ->native(false)
                                     ->displayFormat('F d, Y'),
-                                Forms\Components\FileUpload::make('or_file')
-                                    ->label('Upload Official Receipt')
-                                    ->directory('or_files')
-                                    ->getUploadedFileNameForStorageUsing(
-                                        fn (TemporaryUploadedFile $file): string => (string) str($file->getClientOriginalName())
-                                            ->prepend(''),
-                                    )
-                                    ->columnSpan([
-                                        'sm' => 2,
-                                        'xl' => 2,
-                                        '2xl' => 2,
-                                    ]),
-
-                            ])
-                            ->columns(1)
-                        ]),
-                    Step::make('Insurance Policies')
-                        ->schema([
-                            Repeater::make('insurancePolicies')
-                            ->relationship()
-                            ->columns([
-                                'sm' => 4,
-                                'xl' => 4,
-                                '2xl' => 4,
-                            ])
-                            ->schema([
-                                Forms\Components\TextInput::make('policy_no')
+                                Forms\Components\TextInput::make('par_no')
                                     ->maxLength(255)
                                     ->default(null),
-                                Forms\Components\DatePicker::make('policy_expiration')
-                                    ->displayFormat('F d, Y')
-                                    ->native(false),
-                                Forms\Components\FileUpload::make('policy_file')
-                                    ->label('Upload Insurance Policy')
-                                    ->directory('policy_files')
-                                    ->getUploadedFileNameForStorageUsing(
-                                        fn (TemporaryUploadedFile $file): string => (string) str($file->getClientOriginalName())
-                                            ->prepend(''),
-                                    )
-                                    ->columnSpan([
-                                        'sm' => 2,
-                                        'xl' => 2,
-                                        '2xl' => 2,
+                                Forms\Components\Select::make('division_id')
+                                    ->label('Division')
+                                    ->options(Division::pluck('name', 'id'))
+                                    ->searchable()
+                                    ->reactive()
+                                    ->live()
+                                    ->required(),
+                                Forms\Components\Select::make('custodian')
+                                    ->options(fn (Get $get) => \App\Models\Profile::where('division_id', $get('division_id'))
+                                        ->get()
+                                        ->pluck('full_name', 'id'))
+                                    ->label('Custodian')
+                                    ->searchable(),
+                                Forms\Components\Select::make('status')
+                                    ->options([
+                                        'Good Running Condition' => 'Good Running Condition',
+                                        'Running Condition' => 'Running Condition',
+                                        'Unserviceable' => 'Unserviceable',
                                     ]),
-                            ]),
+                                Forms\Components\Textarea::make('description')
+                                    ->columnSpanFull(),
+                                Forms\Components\Textarea::make('remarks')
+                                    ->columnSpanFull(),
 
-                        ]),
-                ])
-                ->skippableSteps(),
+                            ]),
+                        Step::make('Official Receipts')
+                            ->schema([
+                                Repeater::make('officialReceipts')
+                                    ->relationship()
+                                // Changed this from `->columns(2)` to `->columns(3)`
+                                    ->columns([
+                                        'sm' => 4,
+                                        'xl' => 4,
+                                        '2xl' => 4,
+                                    ])
+                                    ->schema([
+                                        Forms\Components\TextInput::make('or_no')
+                                            ->maxLength(255)
+                                            ->default(null),
+                                        Forms\Components\DatePicker::make('or_expiration')
+                                            ->native(false)
+                                            ->displayFormat('F d, Y'),
+                                        Forms\Components\FileUpload::make('or_file')
+                                            ->label('Upload Official Receipt')
+                                            ->directory('or_files')
+                                            ->getUploadedFileNameForStorageUsing(
+                                                fn (TemporaryUploadedFile $file): string => (string) str($file->getClientOriginalName())
+                                                    ->prepend(''),
+                                            )
+                                            ->columnSpan([
+                                                'sm' => 2,
+                                                'xl' => 2,
+                                                '2xl' => 2,
+                                            ]),
+
+                                    ])
+                                    ->columns(1),
+                            ]),
+                        Step::make('Insurance Policies')
+                            ->schema([
+                                Repeater::make('insurancePolicies')
+                                    ->relationship()
+                                    ->columns([
+                                        'sm' => 4,
+                                        'xl' => 4,
+                                        '2xl' => 4,
+                                    ])
+                                    ->schema([
+                                        Forms\Components\TextInput::make('policy_no')
+                                            ->maxLength(255)
+                                            ->default(null),
+                                        Forms\Components\DatePicker::make('policy_expiration')
+                                            ->displayFormat('F d, Y')
+                                            ->native(false),
+                                        Forms\Components\FileUpload::make('policy_file')
+                                            ->label('Upload Insurance Policy')
+                                            ->directory('policy_files')
+                                            ->getUploadedFileNameForStorageUsing(
+                                                fn (TemporaryUploadedFile $file): string => (string) str($file->getClientOriginalName())
+                                                    ->prepend(''),
+                                            )
+                                            ->columnSpan([
+                                                'sm' => 2,
+                                                'xl' => 2,
+                                                '2xl' => 2,
+                                            ]),
+                                    ]),
+
+                            ]),
+                    ])
+                    ->skippableSteps(),
             ], position: ActionsPosition::BeforeColumns)
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

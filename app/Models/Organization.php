@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Organization extends Model
 {
@@ -16,7 +17,7 @@ class Organization extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'organizations';
@@ -58,9 +59,8 @@ class Organization extends Model
         'to',
     ];
 
-    public function profile()
+    public function profile(): BelongsTo
     {
         return $this->belongsTo(Profile::class);
     }
-
 }

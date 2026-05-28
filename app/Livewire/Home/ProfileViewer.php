@@ -16,7 +16,7 @@ class ProfileViewer extends Component
             'children',
             'educationalBackgrounds',
             'eligibilities',
-            'work_experiences',
+            'workExperiences',
             'trainings',
             'serviceRecords',
             'organizations',

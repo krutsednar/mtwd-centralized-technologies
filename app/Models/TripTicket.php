@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class TripTicket extends Model
 {
@@ -16,7 +18,7 @@ class TripTicket extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'trip_tickets';
@@ -43,7 +45,7 @@ class TripTicket extends Model
         'remarks',
     ];
 
-     protected function casts(): array
+    protected function casts(): array
     {
         return [
             'date' => 'date',
@@ -54,17 +56,17 @@ class TripTicket extends Model
         ];
     }
 
-    public function profiles()
+    public function profiles(): BelongsToMany
     {
         return $this->belongsToMany(Profile::class);
     }
 
-    public function vehicle()
+    public function vehicle(): BelongsTo
     {
         return $this->belongsTo(Vehicle::class);
     }
 
-    public function profile()
+    public function profile(): BelongsTo
     {
         return $this->belongsTo(Profile::class);
     }

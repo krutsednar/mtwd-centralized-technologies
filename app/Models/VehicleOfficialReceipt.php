@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class VehicleOfficialReceipt extends Model
 {
@@ -16,7 +17,7 @@ class VehicleOfficialReceipt extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'vehicle_official_receipts';
@@ -28,14 +29,14 @@ class VehicleOfficialReceipt extends Model
         'vehicle_id',
     ];
 
-     protected function casts(): array
+    protected function casts(): array
     {
         return [
             'or_expiration' => 'date',
         ];
     }
 
-    public function vehicle()
+    public function vehicle(): BelongsTo
     {
         return $this->belongsTo(Vehicle::class);
     }

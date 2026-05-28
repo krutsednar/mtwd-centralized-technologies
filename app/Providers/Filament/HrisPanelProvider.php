@@ -19,6 +19,7 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Joaopaulolndev\FilamentEditProfile\FilamentEditProfilePlugin;
 
 class HrisPanelProvider extends PanelProvider
 {
@@ -39,13 +40,13 @@ class HrisPanelProvider extends PanelProvider
             ])
             ->discoverWidgets(in: app_path('Filament/Hris/Widgets'), for: 'App\\Filament\\Hris\\Widgets')
             ->widgets([
-                \App\Filament\Home\Resources\HomeResource\Widgets\CustomAccountWidget::class,
+                \App\Shared\Filament\Widgets\AccountStatusWidget::class,
                 \App\Filament\Hris\Resources\FaceBiometricEnrollmentResource\Widgets\FaceBiometricEnrollmentStats::class,
             ])
             ->userMenuItems([
                 MenuItem::make()
                     ->label('Account Settings')
-                    ->url('/edit-profile')
+                    ->url(fn (): string => route('filament.HRIS.pages.edit-profile'))
                     ->icon('heroicon-o-cog-6-tooth'),
             ])
             ->middleware([
@@ -61,6 +62,15 @@ class HrisPanelProvider extends PanelProvider
             ])
             ->plugins([
                 FilamentShieldPlugin::make(),
+                FilamentEditProfilePlugin::make()
+                    ->customProfileComponents([
+                        \App\Livewire\CustomProfileComponent::class,
+                    ])
+                    ->setNavigationLabel('My Account')
+                    ->setNavigationGroup('Account Settings')
+                    ->setIcon('fas-user-edit')
+                    ->setSort(10)
+                    ->shouldShowAvatarForm(),
             ])
             ->authMiddleware([
                 Authenticate::class,

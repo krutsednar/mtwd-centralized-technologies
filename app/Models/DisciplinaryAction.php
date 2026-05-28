@@ -4,11 +4,12 @@ namespace App\Models;
 
 use Carbon\Carbon;
 use DateTimeInterface;
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class DisciplinaryAction extends Model
 {
@@ -18,7 +19,7 @@ class DisciplinaryAction extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'disciplinary_actions';
@@ -71,7 +72,7 @@ class DisciplinaryAction extends Model
         return $date->format('Y-m-d H:i:s');
     }
 
-    public function profile()
+    public function profile(): BelongsTo
     {
         return $this->belongsTo(Profile::class);
     }
@@ -89,7 +90,7 @@ class DisciplinaryAction extends Model
     public function getAttachmentAttribute()
     {
         return $this->getMedia('disciplinary_action_attachment')->map(function ($item) {
-            $media        = $item->toArray();
+            $media = $item->toArray();
             $media['url'] = $item->getUrl();
 
             return $media;

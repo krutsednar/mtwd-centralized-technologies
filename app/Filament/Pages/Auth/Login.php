@@ -2,7 +2,6 @@
 
 namespace App\Filament\Pages\Auth;
 
-use Filament\Actions\Action;
 use Filament\Forms\Components\Component;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
@@ -27,11 +26,6 @@ class Login extends BaseAuth
     {
         return [
             $this->getAuthenticateFormAction(),
-            Action::make('biometrics')
-                ->label('Biometrics')
-                ->url('/attendance-mode')
-                ->color('gray')
-                ->outlined(),
         ];
     }
 
@@ -47,11 +41,11 @@ class Login extends BaseAuth
 
     protected function getCredentialsFromFormData(array $data): array
     {
-        $login_type = filter_var($data['login'], FILTER_VALIDATE_EMAIL ) ? 'email' : 'employee_number';
+        $login_type = filter_var($data['login'], FILTER_VALIDATE_EMAIL) ? 'email' : 'employee_number';
 
         return [
             $login_type => $data['login'],
-            'password'  => $data['password'],
+            'password' => $data['password'],
         ];
     }
 
@@ -61,5 +55,4 @@ class Login extends BaseAuth
             'data.login' => __('filament-panels::pages/auth/login.messages.failed'),
         ]);
     }
-
 }

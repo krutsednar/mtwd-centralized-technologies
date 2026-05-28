@@ -395,7 +395,7 @@
          x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0 translate-y-1"
          x-transition:enter-end="opacity-100 translate-y-0">
-        @if ($profile->work_experiences->count())
+        @if ($profile->workExperiences->count())
         <div class="rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm">
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
@@ -413,7 +413,7 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-gray-800/60 bg-white dark:bg-gray-900">
-                        @foreach ($profile->work_experiences->sortByDesc('from') as $we)
+                        @foreach ($profile->workExperiences->sortByDesc('from') as $we)
                         <tr class="hover:bg-gray-50/70 dark:hover:bg-gray-800/40 transition-colors">
                             <td class="px-5 py-2.5 whitespace-nowrap text-gray-500 dark:text-gray-400">
                                 {{ $we->from ? \Carbon\Carbon::parse($we->from)->format('M d, Y') : '—' }}
