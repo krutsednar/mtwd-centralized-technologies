@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class ServiceRecord extends Model
 {
@@ -16,24 +17,19 @@ class ServiceRecord extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'service_records';
 
-    protected $dates = [
-        'from',
-        'to',
-        'created_at',
-        'updated_at',
-        'deleted_at',
-    ];
-
-    protected $casts = [
-        'from' => 'date',
-        'to' => 'date',
-        'salary' => 'decimal:2', // Optional: good practice for currency
-    ];
+    protected function casts(): array
+    {
+        return [
+            'from' => 'date',
+            'to' => 'date',
+            'salary' => 'decimal:2',
+        ];
+    }
 
     protected $fillable = [
         'profile_id',
@@ -51,9 +47,8 @@ class ServiceRecord extends Model
         'other_remarks',
     ];
 
-    public function profile()
+    public function profile(): BelongsTo
     {
         return $this->belongsTo(Profile::class);
     }
-
 }

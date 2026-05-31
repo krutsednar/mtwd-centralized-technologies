@@ -2,15 +2,14 @@
 
 namespace App\Models;
 
-use Carbon\Carbon;
-use DateTimeInterface;
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Vehicle extends Model
 {
@@ -20,7 +19,7 @@ class Vehicle extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'vehicles';
@@ -55,7 +54,7 @@ class Vehicle extends Model
         'remarks',
     ];
 
-    public function vehicleType()
+    public function vehicleType(): BelongsTo
     {
         return $this->belongsTo(VehicleType::class);
     }
@@ -70,12 +69,12 @@ class Vehicle extends Model
         return $this->hasMany(VehicleInsurancePolicy::class);
     }
 
-    public function division()
+    public function division(): BelongsTo
     {
         return $this->belongsTo(Division::class);
     }
 
-    public function profile()
+    public function profile(): BelongsTo
     {
         return $this->belongsTo(Profile::class, 'custodian', 'id');
     }

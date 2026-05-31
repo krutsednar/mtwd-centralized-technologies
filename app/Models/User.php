@@ -3,29 +3,31 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Models\Contracts\HasAvatar;
 use Filament\Panel;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\LogOptions;
-use Spatie\Permission\Traits\HasRoles;
-use Illuminate\Support\Facades\Storage;
-use Filament\Models\Contracts\HasAvatar;
-use Illuminate\Notifications\Notifiable;
-use Filament\Models\Contracts\FilamentUser;
 use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Foundation\Auth\User as Authenticatable;
+use Spatie\Permission\Traits\HasRoles;
 
-class User extends Authenticatable implements HasAvatar, FilamentUser
+class User extends Authenticatable implements FilamentUser, HasAvatar
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, HasRoles;
+    use HasFactory, HasRoles, Notifiable;
+
     use HasRoles;
     use LogsActivity;
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     /**
@@ -55,11 +57,6 @@ class User extends Authenticatable implements HasAvatar, FilamentUser
     protected $hidden = [
         'password',
         'remember_token',
-        'is_approved' => 'boolean',
-    ];
-
-    protected $dates = [
-        'birthday',
     ];
 
     /**
@@ -72,11 +69,13 @@ class User extends Authenticatable implements HasAvatar, FilamentUser
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_approved' => 'boolean',
+            'birthday' => 'date',
             // 'custom_fields' => 'array',
         ];
     }
 
-    public function division()
+    public function division(): BelongsTo
     {
         return $this->belongsTo(Division::class);
     }
@@ -111,23 +110,22 @@ class User extends Authenticatable implements HasAvatar, FilamentUser
         if ($panelId === 'GSMS') {
             return $this->hasRole('super_admin') ||
                 collect($this->getRoleNames())
-                    ->contains(fn($role) => Str::startsWith(Str::upper($role), 'GSMS'));
+                    ->contains(fn ($role) => Str::startsWith(Str::upper($role), 'GSMS'));
         }
 
-         // Allow GSMS if user is super_admin or has any role starting with 'GSMS'
+        // Allow GSMS if user is super_admin or has any role starting with 'GSMS'
         if ($panelId === 'HRIS') {
             return $this->hasRole('super_admin') ||
                 collect($this->getRoleNames())
-                    ->contains(fn($role) => Str::startsWith(Str::upper($role), 'HRIS'));
+                    ->contains(fn ($role) => Str::startsWith(Str::upper($role), 'HRIS'));
         }
 
-         // Allow GSMS if user is super_admin or has any role starting with 'GSMS'
+        // Allow GSMS if user is super_admin or has any role starting with 'GSMS'
         // if ($panelId === 'home') {
         //     return $this->hasRole('super_admin') ||
         //         collect($this->getRoleNames())
         //             ->contains(fn($role) => Str::startsWith(Str::upper($role), 'user'));
         // }
-
 
         // General case: allow access if approved
         return true;
@@ -136,7 +134,7 @@ class User extends Authenticatable implements HasAvatar, FilamentUser
     public function getFilamentAvatarUrl(): ?string
     {
         $avatarColumn = config('filament-edit-profile.avatar_column', 'avatar_url');
+
         return $this->$avatarColumn ? Storage::url($this->$avatarColumn) : null;
     }
-
 }

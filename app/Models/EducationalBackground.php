@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class EducationalBackground extends Model
 {
@@ -16,7 +17,7 @@ class EducationalBackground extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'educational_backgrounds';
@@ -70,18 +71,18 @@ class EducationalBackground extends Model
     ];
 
     public const LEVEL_SELECT = [
-        'Primary'                 => 'Primary',
-        'Elementary'              => 'Elementary',
-        'Secondary - High School'               => 'High School',
-        'Secondary - Junior High School'               => 'Junior High School',
-        'Secondary - Senior High School'               => 'Senior High School',
-        'College'                 => 'College',
-        'Graduate Studies'        => 'Graduate Studies',
+        'Primary' => 'Primary',
+        'Elementary' => 'Elementary',
+        'Secondary - High School' => 'High School',
+        'Secondary - Junior High School' => 'Junior High School',
+        'Secondary - Senior High School' => 'Senior High School',
+        'College' => 'College',
+        'Graduate Studies' => 'Graduate Studies',
         'Vocational/Trade Course' => 'Vocational/Trade Course',
-        'NA'                      => 'NA',
+        'NA' => 'NA',
     ];
 
-    public function profile()
+    public function profile(): BelongsTo
     {
         return $this->belongsTo(Profile::class);
     }
@@ -90,5 +91,4 @@ class EducationalBackground extends Model
     {
         return static::LEVEL_SELECT[$this->level] ?? null;
     }
-
 }

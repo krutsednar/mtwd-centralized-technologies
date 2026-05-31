@@ -37,12 +37,12 @@ class Attendance extends Model
         'synced_at',
     ];
 
-    protected $dates = [
-        'attendance_date',
-        'created_at',
-        'updated_at',
-        'deleted_at',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'attendance_date' => 'date',
+        ];
+    }
 
     public $orderable = [
         'id',

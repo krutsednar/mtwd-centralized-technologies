@@ -27,11 +27,14 @@ class Division extends Model
 
     public const TYPE_DIVISION = 'division';
 
+    public const TYPE_SECTION = 'section';
+
     public const TYPE_LABELS = [
         self::TYPE_OGM => 'Office of the General Manager',
         self::TYPE_OAGM => 'Office of the AGM',
         self::TYPE_ODM => 'Office of the Department Manager',
         self::TYPE_DIVISION => 'Division',
+        self::TYPE_SECTION => 'Section',
     ];
 
     /**
@@ -43,6 +46,7 @@ class Division extends Model
         self::TYPE_OAGM => [self::TYPE_OGM],
         self::TYPE_ODM => [self::TYPE_OGM, self::TYPE_OAGM],
         self::TYPE_DIVISION => [self::TYPE_OGM, self::TYPE_OAGM, self::TYPE_ODM],
+        self::TYPE_SECTION => [self::TYPE_DIVISION],
     ];
 
     // ── Eloquent config ──────────────────────────────────────────────────────

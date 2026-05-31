@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class HeavyEquipmentInsurancePolicy extends Model
 {
@@ -16,7 +17,7 @@ class HeavyEquipmentInsurancePolicy extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'heavy_equipment_insurance_policies';
@@ -28,14 +29,14 @@ class HeavyEquipmentInsurancePolicy extends Model
         'heavy_equipment_id',
     ];
 
-     protected function casts(): array
+    protected function casts(): array
     {
         return [
             'policy_expiration' => 'date',
         ];
     }
 
-    public function heavyEquipment()
+    public function heavyEquipment(): BelongsTo
     {
         return $this->belongsTo(HeavyEquipment::class);
     }

@@ -2,24 +2,22 @@
 
 namespace App\Providers\Filament;
 
-use Filament\Pages;
-use Filament\Panel;
-use Filament\Widgets;
-use Filament\PanelProvider;
-use Filament\Navigation\MenuItem;
-use Filament\Support\Colors\Color;
-use Filament\Support\Enums\MaxWidth;
-use Filament\Navigation\NavigationGroup;
 use Filament\Http\Middleware\Authenticate;
-use Illuminate\Session\Middleware\StartSession;
-use Illuminate\Cookie\Middleware\EncryptCookies;
 use Filament\Http\Middleware\AuthenticateSession;
-use Illuminate\Routing\Middleware\SubstituteBindings;
-use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
-use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Filament\Navigation\MenuItem;
+use Filament\Pages;
+use Filament\Panel;
+use Filament\PanelProvider;
+use Filament\Support\Colors\Color;
+use Filament\Support\Enums\MaxWidth;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Session\Middleware\StartSession;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Joaopaulolndev\FilamentEditProfile\FilamentEditProfilePlugin;
 
 class GsmsPanelProvider extends PanelProvider
@@ -44,12 +42,12 @@ class GsmsPanelProvider extends PanelProvider
             ])
             ->discoverWidgets(in: app_path('Filament/Gsms/Widgets'), for: 'App\\Filament\\Gsms\\Widgets')
             ->widgets([
-                \App\Filament\Home\Resources\HomeResource\Widgets\CustomAccountWidget::class,
+                \App\Shared\Filament\Widgets\AccountStatusWidget::class,
             ])
             ->userMenuItems([
                 MenuItem::make()
                     ->label('Account Settings')
-                    ->url('/edit-profile')
+                    ->url(fn (): string => route('filament.GSMS.pages.edit-profile'))
                     ->icon('heroicon-o-cog-6-tooth'),
             ])
             ->middleware([
@@ -68,22 +66,22 @@ class GsmsPanelProvider extends PanelProvider
             ])
             ->plugins([
                 FilamentEditProfilePlugin::make()
-                ->customProfileComponents([
-                    \App\Livewire\CustomProfileComponent::class,
-                ])
+                    ->customProfileComponents([
+                        \App\Livewire\CustomProfileComponent::class,
+                    ])
                 // ->slug('my-profile')
                 // ->setTitle('My Profile')
-                ->setNavigationLabel('My Account')
-                ->setNavigationGroup('Account Settings')
-                ->setIcon('fas-user-edit')
-                ->setSort(10)
+                    ->setNavigationLabel('My Account')
+                    ->setNavigationGroup('Account Settings')
+                    ->setIcon('fas-user-edit')
+                    ->setSort(10)
                 // ->canAccess(fn () => auth()->user()->id === 1)
                 // ->shouldRegisterNavigation(false)
                 // ->shouldShowEmailForm()
                 // ->shouldShowDeleteAccountForm(false)
                 // ->shouldShowSanctumTokens()
                 // ->shouldShowBrowserSessionsForm()
-                ->shouldShowAvatarForm()
+                    ->shouldShowAvatarForm(),
 
             ])
             ->navigationGroups([

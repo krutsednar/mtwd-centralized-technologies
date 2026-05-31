@@ -2,17 +2,12 @@
 
 namespace App\Models;
 
-use Carbon\Carbon;
-use DateTimeInterface;
-use App\Traits\Auditable;
-use Spatie\MediaLibrary\HasMedia;
-use App\Support\HasAdvancedFilter;
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Spatie\MediaLibrary\InteractsWithMedia;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Training extends Model
 {
@@ -22,7 +17,7 @@ class Training extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'trainings';
@@ -73,14 +68,14 @@ class Training extends Model
     ];
 
     public const LD_TYPE_SELECT = [
-        'Technical'        => 'Technical',
+        'Technical' => 'Technical',
         'Values Formation' => 'Values Formation',
-        'Supervisory'      => 'Supervisory',
-        'Leadership'       => 'Leadership',
-        'Managerial'       => 'Managerial',
+        'Supervisory' => 'Supervisory',
+        'Leadership' => 'Leadership',
+        'Managerial' => 'Managerial',
     ];
 
-    public function profile()
+    public function profile(): BelongsTo
     {
         return $this->belongsTo(Profile::class);
     }

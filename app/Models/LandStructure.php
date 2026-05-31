@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class LandStructure extends Model
 {
@@ -17,7 +18,7 @@ class LandStructure extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'land_structures';
@@ -35,7 +36,7 @@ class LandStructure extends Model
         'status',
     ];
 
-    public function landStructureType()
+    public function landStructureType(): BelongsTo
     {
         return $this->belongsTo(LandStructureType::class);
     }
@@ -54,5 +55,4 @@ class LandStructure extends Model
     {
         return $this->hasMany(StructureInsurance::class);
     }
-
 }

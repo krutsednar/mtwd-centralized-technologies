@@ -23,11 +23,14 @@ class FaceProfile extends Model
         'notes',
     ];
 
-    protected $casts = [
-        'is_enrolled' => 'boolean',
-        'enrolled_at' => 'datetime',
-        'last_verified_at' => 'datetime',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'is_enrolled' => 'boolean',
+            'enrolled_at' => 'datetime',
+            'last_verified_at' => 'datetime',
+        ];
+    }
 
     public function profile(): BelongsTo
     {

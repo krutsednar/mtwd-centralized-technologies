@@ -2,11 +2,12 @@
 
 namespace App\Models;
 
-use Spatie\Activitylog\LogOptions;
-use Illuminate\Database\Eloquent\Model;
-use Spatie\Activitylog\Traits\LogsActivity;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class WorkExperience extends Model
 {
@@ -16,7 +17,7 @@ class WorkExperience extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-        ->logFillable();
+            ->logFillable();
     }
 
     public $table = 'work_experiences';
@@ -72,14 +73,14 @@ class WorkExperience extends Model
     ];
 
     public const APPOINTMENT_STATUS_SELECT = [
-        'Permanent'           => 'Permanent',
-        'Casual'              => 'Casual',
+        'Permanent' => 'Permanent',
+        'Casual' => 'Casual',
         'Contract of Service' => 'Contract of Service',
-        'Job Order'           => 'Job Order',
-        'Part-time'           => 'Part-time',
+        'Job Order' => 'Job Order',
+        'Part-time' => 'Part-time',
     ];
 
-    public function profile()
+    public function profile(): BelongsTo
     {
         return $this->belongsTo(Profile::class);
     }
@@ -88,5 +89,4 @@ class WorkExperience extends Model
     {
         return static::APPOINTMENT_STATUS_SELECT[$this->appointment_status] ?? null;
     }
-
 }

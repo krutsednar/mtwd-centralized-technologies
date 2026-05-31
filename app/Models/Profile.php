@@ -4,11 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
-use App\Models\IndividualPerformance;
 
 class Profile extends Model
 {
@@ -35,13 +36,6 @@ class Profile extends Model
     public const CITIZENSHIP_SELECT = [
         'Filipino' => 'Filipino',
         'Others' => 'Others',
-    ];
-
-    protected $dates = [
-        'date_of_birth',
-        'created_at',
-        'updated_at',
-        'deleted_at',
     ];
 
     protected $fillable = [
@@ -81,9 +75,13 @@ class Profile extends Model
         'face_descriptors',
     ];
 
-    protected $casts = [
-        'face_descriptors' => 'array',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'date_of_birth' => 'date',
+            'face_descriptors' => 'array',
+        ];
+    }
 
     public function getSexLabelAttribute($value)
     {
@@ -110,9 +108,18 @@ class Profile extends Model
         return $this->hasMany(Eligibility::class);
     }
 
-    public function work_experiences(): HasMany
+    public function workExperiences(): HasMany
     {
         return $this->hasMany(WorkExperience::class);
+    }
+
+    /**
+     * @deprecated Use workExperiences() instead. Kept for backward compatibility
+     *             while call sites are migrated; will be removed in a future PR.
+     */
+    public function work_experiences(): HasMany
+    {
+        return $this->workExperiences();
     }
 
     public function individualPerformances(): HasMany
@@ -122,7 +129,7 @@ class Profile extends Model
 
     public function trainings(): HasMany
     {
-        return $this->hasMany(Training::class)->orderBy('from', 'desc');;
+        return $this->hasMany(Training::class)->orderBy('from', 'desc');
     }
 
     public function awards(): HasMany
@@ -130,9 +137,19 @@ class Profile extends Model
         return $this->hasMany(Award::class);
     }
 
-    public function disciplinary_actions(): HasMany
+    public function disciplinaryActions(): HasMany
     {
         return $this->hasMany(DisciplinaryAction::class);
+    }
+
+    /**
+     * @deprecated Use disciplinaryActions() instead. Kept for backward
+     *             compatibility while call sites are migrated; will be
+     *             removed in a future PR.
+     */
+    public function disciplinary_actions(): HasMany
+    {
+        return $this->disciplinaryActions();
     }
 
     public function organizations(): HasMany
@@ -155,7 +172,7 @@ class Profile extends Model
         return $this->hasMany(Skill::class);
     }
 
-    public function division()
+    public function division(): BelongsTo
     {
         return $this->belongsTo(Division::class);
     }
@@ -191,7 +208,7 @@ class Profile extends Model
         return $this->hasMany(LeaveCard::class);
     }
 
-    public function tripTickets()
+    public function tripTickets(): BelongsToMany
     {
         return $this->belongsToMany(TripTicket::class);
     }

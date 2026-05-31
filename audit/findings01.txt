@@ -1,0 +1,525 @@
+# Architecture Audit — mct-staging
+**Date:** 2026-05-23
+**Stack:** Laravel 12 · PHP 8.3 · Filament 3 · Livewire 3 · Tailwind 4 · PostgreSQL (mct_proddb schema) · Pest 3
+**Scope:** Read-only audit of `app/`, `database/migrations/`, `routes/`, `config/`, `tests/`, `resources/views/`
+**Total LOC examined:** ~2,936 (models) + ~6,444 (Filament resources) + ~1,463 (Livewire) + 80 migrations
+
+---
+
+## 1. Executive Summary — Top 5 Highest-Impact Improvements
+
+| # | Improvement | Why | Effort |
+|---|-------------|-----|--------|
+| 1 | **Fix `divisions.type` enum to include `'section'`** (data-corruption blocker) — migration `2026_05_22_151151_add_org_structure_to_divisions_table.php:19` defines `enum('type', ['ogm','oagm','odm','division'])` but `Division::TYPE_SECTION = 'section'` was just added to the model. **Any attempt to create a Section in Structure Management will throw a DB constraint violation.** | Production-blocking | **S** |
+| 2 | **Move `env()` reads into `config/services.php` consumers** — `AutoAttendance.php:44,46`, `Biometrics.php:71,73` read `COMPREFACE_KEY` / `COMPREFACE_URL` directly. The keys *already* exist in `config/services.php:46-48` as `services.compreface.*`. Switch to `config(...)`. Also retire `OnlineHrisService::writeTokenToEnv()` (`OnlineHrisService.php:128-134`) — runtime `.env` writes get nuked by `config:cache`. | Breaks under prod cache | **S** |
+| 3 | **Establish `app/Domain/` skeleton + create `app/Actions/`** — extract the 5 fattest Filament closures into Action classes. Highest-value targets: `EnrollFaceFromPictureAction` (currently `FaceBiometricEnrollmentResource.php:154-199`, 45 lines), `ReEnrollFaceAction` (`:224-283`, 60 lines), `FinalizeKioskEnrollmentAction` (`EnrollmentKiosk.php:89-155`, 66 lines), `AssignSupervisorAction`, `BulkPrintDtrAction`. Establishes the pattern before the bigger move. | Unlocks testability | **M** |
+| 4 | **Carve `app/Domain/Hris`, `app/Domain/Gsms`, `app/Domain/FaceBiometrics`, `app/Domain/Attendance`, `app/Domain/OrgStructure`** and migrate models in that order. The HRIS domain is by far the most tangled (17 models, 10 Filament resources, 6 Livewire components). | Reduces coupling | **L** |
+| 5 | **Build a real test suite (Pest) — current state is zero meaningful tests.** Only `tests/Feature/ExampleTest.php` and `tests/Unit/ExampleTest.php` exist, both placeholders. Critical-path tests needed: face enrollment flow, leave application creation & approval, attendance recording, DTR generation, org-structure drag-and-drop validation, supervisor assignment. Also missing 39 model factories (only `AttendanceFactory` + `UserFactory` exist). | Refactor safety | **L** |
+
+---
+
+## 2. Domain Map
+
+### 2.1 Current vs Proposed
+
+| Domain | Models (current path) | Filament Resources | Livewire | Services/Jobs | Proposed New Path |
+|---|---|---|---|---|---|
+| **Hris (Employee Records)** | `app/Models/Profile.php`, `Child.php`, `EducationalBackground.php`, `WorkExperience.php`, `Eligibility.php`, `Training.php`, `Organization.php`, `Skill.php`, `Recognition.php`, `Award.php`, `DisciplinaryAction.php`, `ServiceRecord.php`, `IndividualPerformance.php` | `Hris/Resources/ProfileResource.php` (804 LOC), `ServiceRecordResource.php`, `TrainingResource.php`, `IndividualPerformanceResource.php` | `Livewire/Hris/TrainingTable.php`, `Home/ProfileViewer.php`, `Home/TrainingsList.php`, `Home/ServiceRecordTable.php`, `Home/PerformanceCards.php` | — | `app/Domain/Hris/Models/`, `app/Domain/Hris/Actions/`, `app/Domain/Hris/Filament/Resources/` |
+| **Leave** | `app/Models/LeaveApplication.php`, `LeaveCard.php`, `LeaveInclusiveDates.php`, `Holiday.php` | `Hris/Resources/LeaveApplicationResource.php` (505 LOC), `LeaveCardResource.php` (217 LOC) | `Home/LeaveCardTable.php`, `Hris/Widgets/LeaveCardStats.php` | `Console/Commands/PopulateLeaveCardsFromApprovedApplications.php` | `app/Domain/Leave/` |
+| **Attendance (Local)** | `app/Models/Attendance.php` | `Hris/Resources/AttendanceResource.php` (208 LOC) | `Hris/AutoAttendance.php`, `Hris/Biometrics.php` (legacy), `Hris/AttendanceManager.php`, `Hris/AttendanceMode.php`, `Hris/DtrViewer.php`, `Home/HomeDtrViewer.php` | `Jobs/SyncOnlineAttendance.php`, `Services/OnlineHrisService.php`, `Console/Commands/SyncOnlineAttendanceCommand.php` | `app/Domain/Attendance/` |
+| **Face Biometrics v2** | `app/Models/FaceBiometrics/FaceProfile.php`, `FaceEmbedding.php`, `FaceAttendance.php`, `FaceAuditLog.php` | `Hris/Resources/FaceBiometricEnrollmentResource.php` (392 LOC) | `FaceBiometrics/EnrollmentKiosk.php` (172 LOC), `FaceBiometrics/AttendanceKiosk.php` (244 LOC), `FaceBiometrics/AuditLog.php` | `Services/FaceBiometricService.php` (242 LOC), `Jobs/FaceBiometrics/BulkSeedFromProfilePicturesJob.php`, `Http/Controllers/FaceBiometrics/HealthController.php`, `Providers/FaceBiometricsServiceProvider.php`, `Exceptions/FaceBiometricException.php`, `ValueObjects/FaceBiometrics/VerifyResult.php` | `app/Domain/FaceBiometrics/` (already partially organised — strongest candidate for first migration) |
+| **Biometric Enrollment v1 (legacy CompreFace)** | `app/Models/BiometricEnrollment.php` | `Hris/Resources/BiometricEnrollmentResource.php` (195 LOC) | `Hris/Biometrics.php` | — | **Retire** — parallel system with Face Biometrics v2 |
+| **Org Structure** | `app/Models/Division.php` (159 LOC) | `Hris/Resources/StructureManagementResource.php` + Pages/ListOrgStructure, `Hris/Resources/SupervisorManagementResource.php`, `Admin/Resources/DivisionResource.php` | — | `database/seeders/OrgStructureSeeder.php` | `app/Domain/OrgStructure/` |
+| **GSMS Transport** | `Vehicle.php`, `VehicleType.php`, `HeavyEquipment.php`, `HeavyEquipmentType.php`, `Equipment.php`, `EquipmentType.php`, `Driver.php`, `TripTicket.php` | `Gsms/Resources/VehicleResource.php` (527 LOC), `HeavyEquipmentResource.php` (548 LOC), `EquipmentResource.php`, `DriverResource.php`, `TripTicketResource.php` (294 LOC), all `*TypeResource` | — | — | `app/Domain/Gsms/Transport/` |
+| **GSMS Land & Structure** | `LandStructure.php`, `LandStructureType.php`, `OtherFacility.php`, `TaxDeclaration.php`, `RealPropertyTax.php`, `StructureInsurance.php` | `Gsms/Resources/LandStructureResource.php` (575 LOC), `LandStructureTypeResource.php` | `Gsms/RptTable.php`, `Gsms/TaxDecTable.php`, `Gsms/StructureInsuranceTable.php`, `Gsms/TaxDocuments/*`, `Gsms/InsurancePolicies/StructureInsurances.php` | — | `app/Domain/Gsms/Property/` |
+| **GSMS Receipts & Policies** | `VehicleOfficialReceipt.php`, `VehicleInsurancePolicy.php`, `HeavyEquipmentOfficialReceipt.php`, `HeavyEquipmentInsurancePolicy.php` | (managed via `Gsms/Pages/InsurancePolicies.php`, `OfficialReceipts.php`) | `Gsms/HeavyEquipmentInsurances.php`, `Gsms/HeavyEquipmentOfficialReceipts.php`, `Gsms/VehicleInsurace.php` (typo), `Gsms/VehicleOfficialReceipts.php`, plus `Gsms/InsurancePolicies/*`, `Gsms/OfficialReceipts/*` | — | Folded into `app/Domain/Gsms/Transport/` |
+| **Identity / Auth** | `User.php` | `Admin/Resources/UserResource.php`, `RoleResource.php` | `CustomProfileComponent.php` | — | `app/Domain/Identity/` or `app/Shared/Auth/` |
+
+### 2.2 Cross-Domain Coupling (Leaks)
+
+These imports cross domain boundaries today; the future plan must keep them or rewrap them:
+
+- `app/Filament/Gsms/Resources/DriverResource.php:8`, `EquipmentResource.php:8`, `HeavyEquipmentResource.php` (via Pages), `VehicleResource.php` (via Pages), `TripTicketResource.php:9` — all GSMS resources import `App\Models\Profile` (HRIS). Justified for "assigned to employee" lookups, but should ideally go through a `ProfileLookup` query service or a read-model.
+- `app/Filament/Gsms/Resources/EquipmentResource.php:10`, `VehicleResource.php:10`, `HeavyEquipmentResource.php:9`, `Pages/ListVehicles.php:8`, `Pages/ListHeavyEquipment.php:8`, `Hris/Resources/AttendanceResource.php:6` — all import `App\Models\Division` (OrgStructure).
+- `app/Providers/Filament/HrisPanelProvider.php:41` and `AdminPanelProvider.php:46` and `GsmsPanelProvider.php:47` all register `\App\Filament\Home\Resources\HomeResource\Widgets\CustomAccountWidget::class` — a **Home panel widget being referenced across three other panels**. Should live in `App\Shared\Filament\Widgets`.
+- `app/Filament/Hris/Resources/LeaveApplicationResource.php:9` imports `App\Models\ServiceRecord` purely to autofill `position` + `salary` on profile select (line 87-92). This is HRIS-internal, fine.
+- `app/Filament/Hris/Resources/AttendanceResource.php:6` imports `Division` for the bulk-print dropdown — Attendance → OrgStructure leak.
+
+### 2.3 Proposed Bounded-Context Boundaries
+
+```
+Domain Boundaries (proposed):
+
+┌─────────────────────────────────────────┐
+│  Shared / Identity                       │
+│  - User (auth user)                      │
+│  - Profile (the employee read-model)     │   ←─── read-only references from other domains
+└─────────────────────────────────────────┘
+              ▲
+              │ FK profile_id
+              │
+┌─────────────────────────────┐  ┌─────────────────────┐  ┌────────────────────┐
+│  Hris (employee records)    │  │  Leave              │  │  Attendance        │
+│  - PDS, Trainings,          │  │  - Applications     │  │  - Local + Online  │
+│    Service Records,         │  │  - Leave Cards      │  │  - DTR generation  │
+│    Performance              │  │  - Holidays         │  │                    │
+└─────────────────────────────┘  └─────────────────────┘  └────────────────────┘
+              │                                                     │
+              │                                                     │ matches against
+              ▼                                                     ▼
+┌─────────────────────────────┐                          ┌────────────────────┐
+│  OrgStructure               │                          │  FaceBiometrics    │
+│  - Division (tree)          │←────── assigns ──────────│  - Profiles,       │
+│  - Section (new)            │                          │    Embeddings,     │
+│  - Supervisors / OIC        │                          │    Attendance kiosk│
+└─────────────────────────────┘                          └────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Gsms (separate panel — should not import HRIS internals)                     │
+│  - Transport: Vehicle, HeavyEquipment, Equipment, Driver, TripTicket          │
+│  - Property:  LandStructure, OtherFacility, TaxDeclaration, RPT, Insurance    │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Findings by Area
+
+### 3.1 Domain & Bounded Contexts
+
+| ID | Finding | File | Severity |
+|---|---|---|---|
+| D-1 | No `app/Domain/` folder exists. All domains coexist flat in `app/Models/`, `app/Filament/`, `app/Livewire/`. | `app/` | High |
+| D-2 | `app/Models/FaceBiometrics/*` is the only sub-namespaced model directory — a partial step in the right direction. | `app/Models/FaceBiometrics/FaceProfile.php`, etc. | Info |
+| D-3 | `OtherFacility` model has no migration, no Filament resource, no Livewire, no references in code → likely dead. | `app/Models/OtherFacility.php` | Medium |
+| D-4 | Biometric Enrollment v1 (CompreFace, `BiometricEnrollment` model + `BiometricEnrollmentResource`) and Face Biometrics v2 (pgvector, full domain) coexist. Two parallel systems doing the same job. Decide and retire one. | `app/Models/BiometricEnrollment.php`, `app/Filament/Hris/Resources/BiometricEnrollmentResource.php`, `app/Livewire/Hris/Biometrics.php`, `AutoAttendance.php` | High |
+| D-5 | `app/Livewire/Hris/Biometrics.php` references `$profile->name` which does not exist on `Profile` (the field is split into surname/first_name/middle_name + `full_name` accessor). The Livewire component is broken. Lines 22-30. Likely dead code from before the v2 rewrite. | `app/Livewire/Hris/Biometrics.php:22-30` | High |
+
+### 3.2 Models (`app/Models/`)
+
+Total: 41 models, 2,936 LOC. None exceed the 300-line threshold, but **method/relationship density and conventions are inconsistent**.
+
+| Model | LOC | Public methods | Relationships | Issues |
+|---|---|---|---|---|
+| `Profile.php` | 198 | 17 | 14 | Old `$casts` property style (line 84) instead of `casts()` method; deprecated `$dates` property (line 40); duplicated `fullName()` (171) and `getFullNameAttribute()` (163) — same body; snake_case relationship method names `work_experiences()` (113), `disciplinary_actions()` (133) — Eloquent convention is camelCase; `division()` (158) and `tripTickets()` (194) missing return type hints; `$appends` commented out (26-28). |
+| `User.php` | 142 | 4 | 1 | `$hidden` array malformed — `'is_approved' => 'boolean'` (line 58) is a cast, not a hide directive; `$dates` property (61) deprecated; commented-out canAccessPanel (84-95) — dead code with a clearer rewrite immediately below; `division()` (79) no return type. |
+| `LeaveApplication.php` | 159 | 4 | 2 | Casts via `casts()` ✓; uses `boot()` to auto-generate `leave_application_no` (130-136) — better as an observer; 9 SELECT constants — ripe for PHP 8.1 enums (`LeaveType`, `LeaveLocation`, `SickLeaveType`, etc.). |
+| `Division.php` | 159 | 8 | 3 | Cleanest model. `TYPE_SECTION` added but **DB enum does not include it** (see migrations § 3.3). |
+| `LeaveCard.php` | 79 | 2 | 1 | `CATEGORY_SELECT` (22-44) mixes leave types and non-leave categories — should be enum, or split into two enums. |
+| `Attendance.php` | 69 | 2 | 1 | Uses deprecated `$dates` (40); non-standard `$orderable` (47) / `$filterable` (59) properties — these aren't read by Eloquent and look like leftovers from a different package. |
+| `ServiceRecord.php` | 59 | 1 | 1 | `$dates` (24) AND `$casts` (32) define the same date columns — redundant. |
+| `FaceProfile.php` | 56 | 4 | 3 | `$casts` property (26) — should be `casts()` method. |
+| `FaceEmbedding.php` | 94 | 3 | 1 | Two static methods (`insertVector`, `searchTopK`) contain raw SQL with `DB::statement` (42-58, 65-90) — pgvector access. **Should move to `App\Domain\FaceBiometrics\Repositories\FaceEmbeddingRepository`** so the model stays a thin Eloquent record. |
+| `BiometricEnrollment.php` | 39 | 1 | 1 | No `SoftDeletes` (compare to similar archival models). No factory, no seeder. |
+| `Holiday.php` | 40 | 1 | 0 | Static `nonWorkingDates()` (33-38) is OK but should live as a query scope or repository method. |
+| `OtherFacility.php` | 45 | — | — | **Dead model** — no migration, no resource, no Livewire reference. Confirm and delete. |
+
+**Universal model issues:**
+- 39 of 41 models have **no factory**. Only `User` and `Attendance` have factories.
+- Casts mixed between `$casts` property (older style) and `casts()` method (Laravel 12 preferred). Standardise on `casts()`.
+- Deprecated `$dates` property used on `Profile`, `User`, `Attendance`, `ServiceRecord` — Laravel 12 wants `casts()`.
+- Many models miss return type hints on relationships. Examples: `Profile::division()`, `Profile::tripTickets()`, `User::division()`, `ServiceRecord::profile()`.
+- No models extend a shared base class — useful for `LogsActivity`, soft-deletes, observer wiring.
+
+### 3.3 Migrations (`database/migrations/`)
+
+80 migration files. Most use anonymous-class syntax but the `2024_02_26_*` and `2024_03_07_*` batches use the legacy `class CreateXxx extends Migration` pattern.
+
+#### Critical / blocking
+| ID | Finding | File:line |
+|---|---|---|
+| M-1 | **`divisions.type` enum does not include `'section'`** — but `Division::TYPE_SECTION = 'section'` is now in the model. INSERTs of Section rows will throw `invalid input value for enum`. Fix: new migration that ALTERS the enum to include `section`. | `2026_05_22_151151_add_org_structure_to_divisions_table.php:19` |
+| M-2 | `2025_07_08_021541_add_division_to_profiles.php` creates `division_id` as **`string`** (line 15) — no FK, no index, no `down()`. Same pattern in `vehicles` (`2024_02_26_000005:26`), `heavy_equipments`, `equipment`. Required a corrective migration `2026_05_14_110000_fix_division_id_column_types.php` to fix. The corrective migration depends on every value being numeric — a single non-numeric value would fail. | `2025_07_08_021541_add_division_to_profiles.php` |
+| M-3 | `2025_07_02_065714_add_status_to_profile.php` line 15 calls `->required()` on a `Schema::table` column — `required()` is a Filament form method, not a Blueprint method. This silently no-ops or throws. Also missing `down()`. | `2025_07_02_065714_add_status_to_profile.php:15-17` |
+| M-4 | `2025_07_03_023046_add_custom_fields_to_users_table.php` then commented out in `User.php` fillable (line 47) and casts (75) — column exists in DB but is dead in the model. Either remove the column or wire it back. | `2025_07_03_023046_*.php` + `User.php:47,75` |
+
+#### Naming inconsistencies
+| ID | Finding | File |
+|---|---|---|
+| M-5 | `2024_02_26_*` and `2024_03_07_*` batches use legacy class syntax (`class CreateXxxTable extends Migration`) — all newer migrations use `return new class extends Migration`. Standardise. | 18 files in `2024_*` |
+| M-6 | `2025_07_03_033356_add_attachment_to_elitibility.php` — **typo** "elitibility" should be "eligibility". | filename |
+| M-7 | Two distinct migrations with the same prefix `2026_04_13_153927_*`: `add_leave_application_no_drop_from_to_leave_applications.php` and `create_leave_inclusive_dates_table.php`. Filament/Laravel run them alphabetically but this is fragile. | `2026_04_13_153927_*.php` (two files) |
+
+#### Missing indexes (high query cost)
+| ID | Table | Missing index | File |
+|---|---|---|---|
+| M-8 | `attendances` | `(employee_number, attendance_date)` — heavily queried in DTR generation; `routes/web.php` filters by both. | `2026_04_07_142806_create_attendances_table.php` |
+| M-9 | `attendances` | `(profile_id, attendance_date)` — DTR viewer and bulk-print query. | same |
+| M-10 | `leave_cards` | `(profile_id, date_applied)` — leave-card table is sorted by `date_applied` and filtered by profile. | `2026_04_14_093533_create_leave_cards_table.php` |
+| M-11 | `service_records` | `(profile_id, from)` — `LeaveApplicationResource:87-92` does `ServiceRecord::where('profile_id', $state)->orderByDesc('from')->first()` per profile select. | `2024_03_07_000016_create_service_records_table.php` |
+| M-12 | `face_attendances` | needs index on `(profile_id, attendance_date)` (verify against migration `2026_05_18_000003`). | `2026_05_18_000003_create_face_attendances_table.php` |
+| M-13 | `divisions` | `(parent_id, sort_order)` — the tree-load path. Only foreign key exists, but a composite index speeds up `Division::query()->orderBy('sort_order')` per parent. | `2026_05_22_151151_*.php` |
+| M-14 | `leave_inclusive_dates` | `(leave_application_id, date)` — joined to compute total duration. | `2026_04_13_153927_create_leave_inclusive_dates_table.php` |
+
+#### Should be enums (or PG ENUMs)
+| ID | Table.column | Allowed values | File |
+|---|---|---|---|
+| M-15 | `leave_applications.leave_type` | 14 values from `LeaveApplication::LEAVE_TYPE_SELECT` | `2026_04_13_135554_*.php:19` |
+| M-16 | `leave_applications.details_sick_leave`, `.details_location`, `.details_study_leave`, `.details_other_purpose`, `.commutation`, `.recommendation`, `.approval_status` | All constrained strings | same migration |
+| M-17 | `leave_cards.category` | 19 values | `2026_04_14_093533_*.php:17` |
+| M-18 | `holidays.type` | `regular | special_non_working | special_working` | `2026_04_13_163419_*.php:15` |
+| M-19 | `profiles.sex` | `M | F` | `2024_03_07_000006_*.php:19` |
+| M-20 | `profiles.citizenship` | `Filipino | Others` | `2024_03_07_000006_*.php:20` |
+| M-21 | `face_profiles.enrollment_source` | `profile_picture | webcam | upload | mixed | biometric_sync | imported` | `2026_05_18_000001_*.php:18` |
+
+#### Soft-deletes likely missing
+| ID | Table | Why | File |
+|---|---|---|---|
+| M-22 | `biometric_enrollments` | Audit / archival — currently deletes are hard. | `2026_05_14_100000_*.php` |
+| M-23 | `face_profiles`, `face_embeddings`, `face_attendances`, `face_audit_log` | Audit/compliance — hard deletes lose history. Especially `face_audit_log` which is the audit table itself. | `2026_05_18_000001-4_*.php` |
+| M-24 | `leave_inclusive_dates` | Linked to soft-deletable `leave_applications` — orphaned soft-deleted parents leave dates referenced. | `2026_04_13_153927_create_leave_inclusive_dates_table.php` |
+| M-25 | `holidays` | Likely fine to keep hard-delete, but flag. | `2026_04_13_163419_*.php` |
+
+#### Risky `->change()` calls
+| ID | Finding | File:line |
+|---|---|---|
+| M-26 | `leave_cards.duration` changed from `decimal(10,6) default(0)` to `string nullable default(null)` (line 12) — change drops default attribute differently between dialects. Boost guidelines warn migrations modifying columns must include all previous attributes. | `2026_04_14_115128_change_duration_to_string_in_leave_cards_table.php:12` |
+| M-27 | `2026_04_14_120844_drop_deduction_columns_from_leave_cards_table.php` — verify no foreign references before dropping (haven't read this file, flag). | name |
+| M-28 | `2025_07_15_081436_create_activity_log_table.php` + `_081437_add_event_column` + `_081438_add_batch_uuid_column` — three migrations within seconds. Activity-log columns added piecemeal. Acceptable but fragile. | three files |
+
+#### `down()` issues
+| ID | Finding | File |
+|---|---|---|
+| M-29 | `2025_07_02_065714_add_status_to_profile.php` — `down()` commented out. Rollback won't drop the column. | line 22-27 |
+| M-30 | `2025_07_08_021541_add_division_to_profiles.php` — no `down()` at all. | (file ends after `up()`) |
+
+#### Inconsistent column naming
+| ID | Finding |
+|---|---|
+| M-31 | `head_profile_id` (`divisions`) vs `profile_id` everywhere else — break of convention. Could be `head_id` (FK pointing to profiles unambiguous via FK definition). |
+| M-32 | `oic_profile_id` vs `oic_active` — `oic_active` is a boolean but reads like a relationship. |
+| M-33 | `compreface_face_ids` (`biometric_enrollments`) — package-specific name leaks into schema. Will be awkward once Face Biometrics v2 fully replaces this. |
+
+### 3.4 Filament (`app/Filament/`)
+
+Panel inventory (4 panels):
+
+| Panel | id() | path() | Resources | Pages | Plugins |
+|---|---|---|---|---|---|
+| Admin | `admin` | `/admin` | 3 (`DivisionResource`, `RoleResource`, `UserResource`) | Dashboard | `FilamentShield`, `FilamentEditProfile`, `Activitylog` |
+| HRIS | `HRIS` | `/hris` | 10 | Dashboard | `FilamentShield` only |
+| GSMS | `GSMS` | `/gsms` | 10 | InsurancePolicies, OfficialReceipts, TaxDocuments, Dashboard | `FilamentEditProfile` |
+| Home | `home` | `/home` | 0 | MyDtr, MyLeaveCard, MyPerformance, MyProfile, MyServiceRecord, MyTrainings, Dashboard | `FilamentEditProfile` |
+
+#### Panel-provider inconsistencies
+| ID | Finding | File:line |
+|---|---|---|
+| F-1 | `HrisPanelProvider` does not register `FilamentEditProfilePlugin` (Admin, GSMS, Home all do). So `/hris/edit-profile` 404s while `/admin/edit-profile`, `/gsms/edit-profile`, `/home/edit-profile` work. The shared `/edit-profile` redirect just added in `routes/web.php` patches this but underlying inconsistency remains. | `app/Providers/Filament/HrisPanelProvider.php` (no plugin entry) |
+| F-2 | `widgets([...])` in three panel providers all reference `\App\Filament\Home\Resources\HomeResource\Widgets\CustomAccountWidget::class` — a Home panel widget reused everywhere. Move to `App\Shared\Filament\Widgets\AccountStatusWidget` (or similar) and stop reaching across panel namespaces. | `HrisPanelProvider.php:41`, `AdminPanelProvider.php:46`, `GsmsPanelProvider.php:47` |
+| F-3 | `HrisPanelProvider` uses `RedirectLogin::class` like other panels ✓. But middleware order differs: `HrisPanelProvider:54-58` includes `DisableBladeIconComponents` before `DispatchServingFilamentEvent`; `GsmsPanelProvider:55-64` matches; `AdminPanelProvider:54-63` matches. Order is mostly consistent — verify on each. | three panel providers |
+| F-4 | `HrisPanelProvider.php` had no `discoverWidgets()` prior to the fix in this session. Now patched, but `FaceBiometricEnrollmentStats` had to be added to `widgets([...])` explicitly because it's inside a Resource subdirectory. The convention is inconsistent — resource-nested widgets vs panel-level widgets. | `HrisPanelProvider.php` |
+| F-5 | `GsmsPanelProvider` calls `font('Roboto')` (line 32); other panels don't. Inconsistent branding. | `GsmsPanelProvider.php:32` |
+| F-6 | Only `AdminPanelProvider` registers `Activitylog` and `Shield` together; other panels register Shield but not Activitylog. If activity-log access is desired in HRIS/GSMS, add it. | `AdminPanelProvider.php:65-69` vs others |
+
+#### God-class resources (>300 LOC)
+| File | LOC | Notes |
+|---|---|---|
+| `Hris/Resources/ProfileResource.php` | **804** | Single huge wizard with 6+ Steps covering full PDS. Splitting into multiple Pages (basic info, family, education, training, awards, etc.) or breaking the form into static helper methods + dedicated step classes would each cut hundreds of lines. |
+| `Gsms/Resources/LandStructureResource.php` | 575 | |
+| `Gsms/Resources/HeavyEquipmentResource.php` | 548 | |
+| `Gsms/Resources/VehicleResource.php` | 527 | |
+| `Hris/Resources/LeaveApplicationResource.php` | 505 | Form steps already extracted into `getFormSteps()` (line 43) — good pattern. Could go further by extracting each step into a class. |
+| `Hris/Resources/FaceBiometricEnrollmentResource.php` | 392 | The action closures (see § 3.5) account for most of the bloat. |
+| `Gsms/Resources/TripTicketResource.php` | 294 | |
+
+#### Resources using the wrong `$model`
+Several "viewer" resources are pinned to `Profile::class` even though they manage a different model. Filament correctly handles this but it's confusing and breaks `getEloquentQuery()` overrides.
+
+| Resource | `$model` | What it actually manages |
+|---|---|---|
+| `Hris/Resources/AttendanceResource.php:17` | `Profile::class` | Attendance records (via `Profile::query()->has('attendances')`) |
+| `Hris/Resources/IndividualPerformanceResource.php:20` | `Profile::class` | IndividualPerformance |
+| `Hris/Resources/ServiceRecordResource.php:18` | `Profile::class` | ServiceRecord |
+| `Hris/Resources/TrainingResource.php:21` | `Profile::class` | Training |
+| `Hris/Resources/SupervisorManagementResource.php:16` | `Division::class` | OK — really is about Division |
+
+These should either:
+- Switch `$model` to the right entity and join Profile for display columns, or
+- Convert to custom Filament Pages (since they aren't standard CRUD anyway — `canCreate(): false` on all four).
+
+#### Fat action closures (business logic in resources)
+| File:line | Action | Closure body LOC | Extract to |
+|---|---|---|---|
+| `Hris/Resources/FaceBiometricEnrollmentResource.php:154-199` | `seedFromPicture` | 45 | `App\Domain\FaceBiometrics\Actions\EnrollFromProfilePictureAction` |
+| `Hris/Resources/FaceBiometricEnrollmentResource.php:224-283` | `reEnroll` | 60 | `App\Domain\FaceBiometrics\Actions\ReEnrollAction` |
+| `Hris/Resources/FaceBiometricEnrollmentResource.php:292-313` | `removeEnrollment` | 22 | `App\Domain\FaceBiometrics\Actions\RemoveEnrollmentAction` |
+| `Hris/Resources/IndividualPerformanceResource.php:180-196` | `edit_record` (sync repeater) | 17 | `App\Domain\Hris\Actions\SyncIndividualPerformancesAction` |
+| `Hris/Resources/ServiceRecordResource.php:204-218` | `edit_service_records` | 15 | `App\Domain\Hris\Actions\BulkUpdateServiceRecordsAction` |
+| `Hris/Resources/TrainingResource.php:200-212` | `edit_trainings` | 13 | `App\Domain\Hris\Actions\BulkUpdateTrainingsAction` |
+| `Hris/Resources/SupervisorManagementResource.php:145-151` | `assign` | 7 | `App\Domain\OrgStructure\Actions\AssignSupervisorAction` |
+| `Hris/Resources/AttendanceResource.php:85-90`, `:129-137`, `:180-187` | DTR print redirects | small (OK) | — |
+| `Hris/Resources/StructureManagementResource/Pages/ListOrgStructure.php:171-200`, `:238-251` | `add_unit`, `edit_unit` | 30 + 13 | `CreateOrgUnitAction`, `RenameOrgUnitAction` |
+
+#### Duplicated dropdown queries (N+1-style waste)
+Several resources rebuild a full `Profile` employee list dropdown on every form render — no caching, no scope:
+- `LeaveApplicationResource.php:60-64`, `LeaveCardResource.php:34-39`, `SupervisorManagementResource.php:42-50`, `ServiceRecordResource.php:42-48`, `IndividualPerformanceResource.php:46-49`, `TrainingResource.php:45-48`, `FaceBiometricEnrollmentResource.php:37-43`.
+- Each fetches every Profile, calls `mapWithKeys`. With 1000 profiles × many renders, this is expensive.
+- Extract to `App\Domain\Hris\Queries\EmployeeOptions::all()` with a short cache.
+
+#### Other Filament smells
+- `Hris/Resources/ProfileResource.php:49` — `disabled(! auth()->user()->hasAnyRole(['super_admin', 'HRIS Admin']))` — role strings hard-coded throughout the file. Centralise as a Policy or as constants on `User`.
+- `ProfileResource.php` has many `// ->required()` and other commented-out fluent calls, suggesting incomplete refactor (lines 92, 700-718).
+- `ProfileResource.php:772` — `->query(Profile::orderBy('id', 'desc'))` should be `->modifyQueryUsing(fn ($q) => $q->orderBy('id', 'desc'))` per current Filament conventions, or use `->defaultSort('id', 'desc')`.
+
+### 3.5 Services / Jobs / Actions
+
+#### Current inventory
+| Class | LOC | Single responsibility? | Tested? | Notes |
+|---|---|---|---|---|
+| `App\Services\FaceBiometricService` | 242 | ✓ Yes (Python service client) | No | Well-structured, uses config, throws domain exception. Best example in codebase. |
+| `App\Services\OnlineHrisService` | 136 | Partly — auth + fetch + mark-synced in one class | No | `writeTokenToEnv()` (128) is a code smell — modifies `.env` at runtime. |
+| `App\Jobs\SyncOnlineAttendance` | 116 | ✓ Yes | No | Calls `OnlineHrisService`, idempotent via `updateOrCreate`. |
+| `App\Jobs\FaceBiometrics\BulkSeedFromProfilePicturesJob` | 124 | ✓ Yes | No | Good namespace organisation. |
+| `App\Actions\*` | — | — | — | **Directory does not exist.** |
+
+#### Logic that should be Actions (gap analysis)
+| Logic | Currently lives in | New class proposal |
+|---|---|---|
+| Generate `leave_application_no` | `LeaveApplication::boot()` `static::creating` (`LeaveApplication.php:130-136`) | `App\Domain\Leave\Actions\GenerateLeaveApplicationNumberAction` invoked via observer |
+| Enroll face from profile picture (full pipeline: extract → store → audit) | `FaceBiometricEnrollmentResource.php:154-199` | `App\Domain\FaceBiometrics\Actions\EnrollFromProfilePictureAction` |
+| Re-enroll face from upload | `FaceBiometricEnrollmentResource.php:224-283` | `App\Domain\FaceBiometrics\Actions\AppendFaceTemplateAction` |
+| Remove face enrollment | `FaceBiometricEnrollmentResource.php:292-313` | `App\Domain\FaceBiometrics\Actions\RemoveFaceEnrollmentAction` |
+| Finalize kiosk enrollment (5-frame capture → embed → audit) | `EnrollmentKiosk.php:89-155` | `App\Domain\FaceBiometrics\Actions\FinalizeKioskEnrollmentAction` |
+| Record face attendance | `AttendanceKiosk.php` (multiple methods) | `App\Domain\FaceBiometrics\Actions\RecordFaceAttendanceAction` |
+| Assign supervisor / OIC to org unit | `SupervisorManagementResource.php:145-151` | `App\Domain\OrgStructure\Actions\AssignSupervisorAction` |
+| Reorder / reparent org-tree nodes | `Pages/ListOrgStructure.php:76-86`, `:92-133` | `App\Domain\OrgStructure\Actions\ReorderOrgTreeAction`, `ReparentOrgUnitAction` |
+| DTR generation for profile/division (PDF) | `routes/web.php:18-128` (4 closures) | `App\Domain\Attendance\Actions\GenerateDtrPdfAction` + 3 controllers |
+| Bulk update individual performances | `IndividualPerformanceResource.php:180-196` | `App\Domain\Hris\Actions\SyncIndividualPerformancesAction` |
+
+### 3.6 Controllers / Form Requests / API Resources
+
+| Area | State |
+|---|---|
+| `app/Http/Controllers/` | Only `Controller.php` (base) and `FaceBiometrics\HealthController.php`. |
+| `app/Http/Requests/` | **Does not exist.** Zero Form Requests in the codebase. |
+| `app/Http/Resources/` | **Does not exist.** Zero API Resources. |
+| `app/Events/` | **Does not exist.** No events emitted. |
+| `app/Listeners/` | **Does not exist.** |
+
+#### What needs to become a controller
+The PDF/print logic in `routes/web.php` (lines 13-128, ~115 LOC of route closures) belongs in dedicated controllers:
+
+| Route | Closure LOC | Proposed controller |
+|---|---|---|
+| `GET /dtr/print/{profile}` (`routes/web.php:14-34`) | 20 | `App\Http\Controllers\Hris\Dtr\PrintProfileDtrController@__invoke` |
+| `GET /dtr/print/division/{division}` (`routes/web.php:36-55`) | 19 | `App\Http\Controllers\Hris\Dtr\PrintDivisionDtrController@__invoke` |
+| `GET /dtr/print/jo/{division}` (`routes/web.php:57-83`) | 26 | `App\Http\Controllers\Hris\Dtr\PrintJobOrderDtrController@__invoke` |
+| `GET /service-record/print/{profile}` (`routes/web.php:85-122`) | 37 | `App\Http\Controllers\Hris\ServiceRecord\PrintServiceRecordController@__invoke` |
+| `GET /leave/print/{leaveApplication}` (`routes/web.php:124-128`) | 4 | `App\Http\Controllers\Hris\Leave\PrintLeaveFormController@__invoke` |
+
+### 3.7 Routes (`routes/`)
+
+| ID | Finding | File:line |
+|---|---|---|
+| R-1 | 4 large closures (DTR + Service Record print) — see § 3.6. Each contains business logic. | `routes/web.php:14-122` |
+| R-2 | `Route::view('/attendance-mode', 'attendancemode')` (`web.php:11`) — orphan view, no nav link found. | `web.php:11`, `resources/views/attendancemode.blade.php` |
+| R-3 | `Route::get('/biometrics/{phase}', ...)` (`web.php:13`) — phase param hard-coded into view; legacy biometrics route. Likely connected to the dead `Livewire\Hris\Biometrics`. | `web.php:13-15` |
+| R-4 | `Route::get('/', view('welcome'))` returns a default `welcome.blade.php` — verify intent. | `web.php:9` |
+| R-5 | Face-biometrics route group uses named routes ✓ — `face-biometrics.index`, `face-biometrics.enroll`, etc. | `web.php:131-138` |
+| R-6 | `/edit-profile` redirect just added (this session) is the only thing in `web.php` that uses referer detection. Could become a service if pattern repeats. | `web.php:11-25` (after current edit) |
+
+### 3.8 Configuration
+
+| ID | Finding | File:line |
+|---|---|---|
+| C-1 | `env('COMPREFACE_KEY')` and `env('COMPREFACE_URL')` called outside config. The keys exist in `config/services.php:46-48`. Read via `config('services.compreface.url')` / `.key` instead. | `app/Livewire/Hris/AutoAttendance.php:44,46`; `Biometrics.php:71,73` |
+| C-2 | `OnlineHrisService::writeTokenToEnv()` writes to `.env` at runtime. When `config:cache` is active in production, `.env` is no longer the source of truth — the cache is. Token rewrites are wiped on cache rebuild. Store token in `cache()->forever()` or a dedicated `oauth_tokens` table. | `app/Services/OnlineHrisService.php:128-134` |
+| C-3 | `bootstrap/providers.php` registers `FaceBiometricsServiceProvider` ✓. No other domain providers exist — once `app/Domain/*` is introduced, each domain may want its own provider for bindings/events. | `bootstrap/providers.php` |
+| C-4 | No `config/hris.php`, `config/gsms.php`, etc. domain configuration is sprinkled (e.g. status select arrays sit on models as constants). Consider domain config files for things like leave-credit-accrual policies. | — |
+| C-5 | `face_biometrics` config exists ✓ and is used through `FaceBiometricService`. Good pattern. | `config/face_biometrics.php` |
+
+### 3.9 Testing (`tests/`)
+
+| Concern | State |
+|---|---|
+| Test files | 2 — both placeholder `ExampleTest.php`. |
+| Pest config | `tests/Pest.php` and `tests/TestCase.php` exist. |
+| Factories | 2 of 41 models (`User`, `Attendance`). |
+| Seeders | 4 — `DatabaseSeeder`, `HrisBiometricsAdminRoleSeeder`, `HrisPermissionAuditSeeder`, `OrgStructureSeeder`. No employee/profile seeders for staging. |
+| Domain coverage | **0%** across HRIS, GSMS, FaceBiometrics, Attendance, Leave, OrgStructure. |
+| Critical missing tests | Face enrollment kiosk flow, attendance kiosk verify+record, leave application creation + auto-number generation, DTR PDF render, supervisor assignment, org tree drag-and-drop validation (`Division::canBeChildOf`), `LeaveCard` balance computation. |
+
+### 3.10 Views & Livewire
+
+| ID | Finding | File |
+|---|---|---|
+| V-1 | Livewire components scattered: `App\Livewire\CustomProfileComponent` at root, `Hris/`, `Home/`, `Gsms/`, `FaceBiometrics/` as subdirs. Inconsistent. | `app/Livewire/CustomProfileComponent.php` |
+| V-2 | `App\Livewire\Hris\Biometrics` (86 LOC) is **dead/broken** — uses `$profile->name` which is not a field on `Profile` (it's `first_name`+`surname`+accessor); uses `env()` directly; refers to legacy CompreFace path that Face Biometrics v2 has replaced. | `app/Livewire/Hris/Biometrics.php` |
+| V-3 | `App\Livewire\Hris\AutoAttendance` (114 LOC) — same legacy CompreFace path; uses `env()` directly; refers to `lunch_out` / `lunch_in` / `overtime_out` Attendance fields that don't exist in the `attendances` schema (which only has morning/afternoon/ot in/out). **Code references non-existent columns.** | `app/Livewire/Hris/AutoAttendance.php:58-62` |
+| V-4 | `App\Livewire\Hris\AttendanceManager` (20 LOC) and `App\Livewire\Hris\AttendanceMode` (19 LOC) — stubs / unfinished. | `app/Livewire/Hris/AttendanceManager.php`, `AttendanceMode.php` |
+| V-5 | `App\Livewire\Gsms\VehicleInsurace` — **typo** ("Insurace"). Class, file, and view path. | `app/Livewire/Gsms/VehicleInsurace.php`, `resources/views/livewire/gsms/vehicle-insurace.blade.php` |
+| V-6 | Duplicate Livewire views: `livewire/gsms/heavy-equipment-insurances.blade.php` and `livewire/gsms/insurance-policies/heavy-equipment-insurances.blade.php` both exist with corresponding components. Same for `vehicle-official-receipts` / `official-receipts/vehicle-official-receipts`. Decide canonical, delete the other. | `app/Livewire/Gsms/*` |
+| V-7 | `resources/views/livewire/hris/` contains views for the dead `Biometrics`/`AutoAttendance` components. Delete after V-2/V-3 cleanup. | `resources/views/livewire/hris/biometrics.blade.php`, `auto-attendance.blade.php` |
+| V-8 | DTR / service-record print views (`dtr-print.blade.php`, `dtr-bulk-print.blade.php`, `dtr-jo-bulk-print.blade.php`, `service-record-print.blade.php`, `leave-print.blade.php`) live at the root of `resources/views/`. Should move to `resources/views/pdf/` (which already contains `service-record-body/header/footer.blade.php`). | `resources/views/dtr-*.blade.php` |
+
+### 3.11 Policies & Authorization
+
+26 policy files exist in `app/Policies/`. Three sub-findings:
+
+| ID | Finding | File |
+|---|---|---|
+| P-1 | Policies are likely Filament Shield generated skeletons. Need a sample audit to confirm they're filled in. | `app/Policies/*.php` |
+| P-2 | `User::canAccessPanel()` (lines 97-134) is the actual panel gate. The newer (uncommented) implementation hard-codes panel IDs and role-prefix matching. Looks reasonable but is hard to test. | `app/Models/User.php:97-134` |
+| P-3 | No `FaceProfilePolicy`, no `FaceAttendancePolicy`, no `LeaveCardPolicy` (wait — there IS a `LeaveCardPolicy`), no `AttendancePolicy`. Verify all critical-write models have policies. | `app/Policies/` |
+
+---
+
+## 4. Phased Migration Plan
+
+### Phase 1 — Low risk, high value (1–2 days)
+Goal: stop the bleeding and clear the obvious junk before any structural changes.
+
+1. **Fix `divisions.type` enum** — create migration to ALTER enum or convert to plain `varchar`. Without this, the Section feature is broken. *(Critical)*
+2. **Replace `env()` in `AutoAttendance.php`, `Biometrics.php` with `config('services.compreface.*')`** — config keys already exist. 4 line changes.
+3. **Delete dead code**: `App\Livewire\Hris\Biometrics`, `AutoAttendance`, `AttendanceManager`, `AttendanceMode`, `App\Models\OtherFacility`, related views and routes (`/biometrics/{phase}`). Confirm with git log / grep first.
+4. **Rename typo'd files**: `VehicleInsurace` → `VehicleInsurance` (class, file, view, blade ref); `add_attachment_to_elitibility` migration filename. *(Note: the migration is already run, only filename rename — harmless.)*
+5. **Add missing indexes**: composite on `attendances(employee_number, attendance_date)`, `leave_cards(profile_id, date_applied)`, `service_records(profile_id, from)`, `leave_inclusive_dates(leave_application_id, date)`. Each one-line migration.
+6. **Move `CustomAccountWidget` to `App\Shared\Filament\Widgets\` and update three panel-provider references.**
+7. **Add `FilamentEditProfilePlugin` to `HrisPanelProvider`** so `/hris/edit-profile` works natively (and the routes/web.php redirect becomes a true fallback).
+8. **Move PDF/print closures out of `routes/web.php` into `App\Http\Controllers\Hris\Dtr\*Controller`, `Hris\ServiceRecord\*`, `Hris\Leave\*`** (5 controllers, all single-action `__invoke`). Keep route names stable.
+9. **Standardise cast style** — replace `$casts` property and `$dates` property with `casts()` method on `Profile`, `User`, `Attendance`, `ServiceRecord`, `FaceProfile`, `BiometricEnrollment`. Mechanical.
+10. **Standardise model relationship naming** — rename `Profile::work_experiences()` → `workExperiences()`, `disciplinary_actions()` → `disciplinaryActions()`. Update all call sites (grep first).
+11. **Add return type hints** to all relationship methods. Mechanical sweep.
+
+### Phase 2 — Pilot DDD migration with FaceBiometrics (3–5 days)
+This is the cleanest, most-isolated domain. It already has its own service provider, namespaced models under `App\Models\FaceBiometrics\`, dedicated config, exceptions, and value objects.
+
+12. **Create `app/Domain/FaceBiometrics/` skeleton**:
+    ```
+    app/Domain/FaceBiometrics/
+    ├── Models/ (FaceProfile, FaceEmbedding, FaceAttendance, FaceAuditLog)
+    ├── Actions/ (EnrollFromProfilePictureAction, AppendFaceTemplateAction, RemoveFaceEnrollmentAction, FinalizeKioskEnrollmentAction, RecordFaceAttendanceAction)
+    ├── Services/ (FaceBiometricService, moved from app/Services)
+    ├── Jobs/ (BulkSeedFromProfilePicturesJob)
+    ├── Repositories/ (FaceEmbeddingRepository — wraps the raw pgvector SQL out of the model)
+    ├── ValueObjects/ (VerifyResult)
+    ├── Exceptions/ (FaceBiometricException)
+    ├── Http/Controllers/ (HealthController)
+    ├── Filament/Resources/ (FaceBiometricEnrollmentResource + Widgets)
+    ├── Livewire/ (EnrollmentKiosk, AttendanceKiosk, AuditLog)
+    └── Providers/ (FaceBiometricsServiceProvider, moved)
+    ```
+13. **Move files**, update namespaces, update `bootstrap/providers.php`, update `HrisPanelProvider::discoverResources()` path or add a new discover line for `app/Domain/FaceBiometrics/Filament/Resources`.
+14. **Update Livewire `class_namespace` mapping** — `config/livewire.php` is currently `App\\Livewire`. With Livewire components under domains, either add multiple `Livewire::namespace(...)` registrations in each domain provider OR keep Livewire root pointed at `App\\Livewire` and only move strictly-domain-bound components.
+15. **Extract the 5 face-biometric Actions** from `FaceBiometricEnrollmentResource.php` and `EnrollmentKiosk.php` / `AttendanceKiosk.php`.
+16. **Pull pgvector SQL out of `FaceEmbedding::insertVector` and `searchTopK`** into a `FaceEmbeddingRepository`.
+17. **Write first 5 Pest tests**: enrollment from profile picture, append template, kiosk verify happy path, kiosk verify replay rejected, audit log entry created.
+
+### Phase 3 — Roll out to remaining domains (1–2 weeks)
+Migrate one domain per PR, in this order (least to most coupled):
+
+18. **OrgStructure** — `Division` model + `StructureManagementResource` + `SupervisorManagementResource` + `Admin/DivisionResource` → `app/Domain/OrgStructure/`.
+19. **Leave** — `LeaveApplication`, `LeaveCard`, `LeaveInclusiveDates`, `Holiday` + `LeaveApplicationResource`, `LeaveCardResource`, `LeaveCardStats` widget + `PopulateLeaveCardsFromApprovedApplications` command → `app/Domain/Leave/`.
+20. **Attendance** — `Attendance` + `AttendanceResource` + `SyncOnlineAttendance` + `OnlineHrisService` + DTR controllers → `app/Domain/Attendance/`.
+21. **Hris** — `Profile`, `Child`, `EducationalBackground`, etc. (13 PDS models) + `ProfileResource`, `ServiceRecordResource`, `TrainingResource`, `IndividualPerformanceResource` → `app/Domain/Hris/`. *(Biggest domain, do last.)*
+22. **Gsms/Transport** + **Gsms/Property** + **Gsms/Receipts** — move all GSMS models and resources → `app/Domain/Gsms/{Transport,Property,Receipts}/`.
+23. **Identity / Shared** — settle the home of `User`, the shared widgets, layouts.
+24. **PHP 8.1+ Enums** — convert the constant arrays (`LeaveApplication::LEAVE_TYPE_SELECT`, `LeaveCard::CATEGORY_SELECT`, `Division::TYPE_LABELS`, `Profile::SEX_SELECT`, etc.) to backed enum classes inside each domain.
+25. **Form Requests** — introduce `app/Http/Requests/` (or `app/Domain/X/Http/Requests/`) for every Filament resource's custom action that takes user input.
+
+---
+
+## 5. Risks & Trade-offs
+
+### What can break
+| Risk | Mitigation |
+|---|---|
+| **Filament resource discovery breaks** when resources move under `app/Domain/.../Filament/Resources` — current `discoverResources()` calls all point at `app_path('Filament/<Panel>/Resources')`. | Add a second `discoverResources()` call per panel pointing at the domain path, e.g. `->discoverResources(in: app_path('Domain/FaceBiometrics/Filament/Resources'), for: 'App\\Domain\\FaceBiometrics\\Filament\\Resources')`. Keep both call sites until migration finishes. |
+| **Livewire component resolution fails** — `config/livewire.php` `class_namespace = 'App\\Livewire'` won't find domain Livewire components. | Either keep all Livewire under `App\\Livewire` (give up on per-domain Livewire) or use `Livewire::namespace('App\\Domain\\FaceBiometrics\\Livewire', 'face-biometrics')` in `FaceBiometricsServiceProvider`. Earlier in this session, Filament's `FaceBiometricEnrollmentStats` widget had to be explicitly added to `widgets([...])` for the same reason — Livewire only auto-discovers within configured namespaces. |
+| **Filament Shield permission strings break** — Shield generates permission names from resource namespaces. Moving namespaces invalidates existing permission rows. | Run `php artisan shield:generate --resource=...` after each move, write a one-shot migration to remap old permission names to new. |
+| **Spatie Activitylog `log_name`** is derived from class FQCN; the activity_log table will show old class names for historical entries — readable but confusing. | Accept the cosmetic blip; add an `auto-formatter` view-side if needed. |
+| **`config:cache` in production** — `OnlineHrisService::writeTokenToEnv` already breaks this. Once domains add their own service providers with closures (`bind(fn () => ...)`), `config:cache` won't break but `route:cache` may if controllers are closures. | All controllers should be class-based after Phase 1; avoid closures in domain providers. |
+| **Tests don't exist yet** — refactoring with zero tests is risky. | Phase 2's pilot includes 5 first tests; expand to ≥1 happy-path test per moved domain before declaring the move "done". |
+| **Filament Shield's policies** are wired to the existing model FQCN; moving `App\Models\Profile` → `App\Domain\Hris\Models\Profile` requires updating every policy class' `$model` reference + every resource's `getModel()`. | Mechanical sed; verify by running `php artisan shield:generate` against the new namespace. |
+| **PostgreSQL schema name `mct_proddb`** is hardcoded in `FaceEmbedding.php:42,58,65,90` `DB::statement('SET search_path TO mct_proddb, public')`. Multi-environment (staging vs prod) breaks if schema name changes. | Read from `config('database.connections.pgsql.search_path')` instead of hardcoding. |
+
+### Tooling / IDE updates needed
+- PHPStorm: refresh "Laravel" / "Filament" IDE helper auto-completes after each domain move.
+- Pint config: no path adjustments needed — `vendor/bin/pint` walks all PHP files.
+- Composer `autoload.psr-4`: no change needed if domain paths follow `App\Domain\X` → `app/Domain/X/`.
+- `bootstrap/providers.php` — add each domain service provider.
+- Filament Shield permission cache: clear after every batch.
+
+### Things that become harder
+- **Cross-domain queries** (e.g. "all profiles in division X with active face enrollment") will need explicit query objects or read-models. Currently it's a free-for-all of `App\Models\*` imports.
+- **Code search for users new to the project** — moving from a flat `app/Models/Profile` to a nested `app/Domain/Hris/Models/Profile` adds a click. Counter-acted by clear domain naming.
+- **Refactor PRs grow** during migration. Recommend one domain per PR.
+
+---
+
+## 6. Open Questions (decisions required before any code moves)
+
+1. **Section under Section, or only under Division?** The `Division::ALLOWED_PARENT_TYPES` entry just added lists `[TYPE_DIVISION]` for `TYPE_SECTION`. Should sections be nestable (Section under Section)? If yes, the array should be `[TYPE_DIVISION, TYPE_SECTION]`.
+2. **Retire `BiometricEnrollment` (v1) entirely?** It still has a model, table, Filament resource, Livewire components, and Jobs reference it. If Face Biometrics v2 is the future, set a deprecation deadline and remove. If both must coexist, document why.
+3. **Where does `Profile` live?** It's the read-model for HRIS but is referenced by GSMS (driver assignments), Attendance (FK), FaceBiometrics (FK), Leave (FK). Options:
+   a. `App\Domain\Hris\Models\Profile` and let everyone import it (current state, just relocated).
+   b. `App\Shared\Models\Profile` (treat it as cross-cutting identity).
+   c. Split into `App\Shared\Models\Employee` (identity, FK target) and `App\Domain\Hris\Models\ProfileDetails` (PDS-heavy fields).
+4. **`User` vs `Profile`** — these are two parallel identity tables. Should they merge? Today `User` is the auth row and `Profile` is the HRIS employee row, linked by `employee_number` string match. Brittle.
+5. **Convert `divisions.type` to varchar (cheap) or PostgreSQL ENUM type (stricter)?** Plain enum column blocks future values; adding `section` once required a migration. Recommend varchar + app-level Backed Enum validation in the model + a CHECK constraint listing allowed values (easier to ALTER than a typed enum).
+6. **Will the project gain a real REST/JSON API soon?** If yes, scaffold `app/Http/Resources/` and `app/Http/Requests/` in Phase 1. If not, defer.
+7. **Are we targeting Pest 3 only, or PHPUnit-style tests too?** Boost guidelines say Pest. Confirm.
+8. **Activity-log retention** — the table grows unbounded. Configure a `prune` schedule? Affects which domain "owns" audit (Shared vs each domain).
+9. **Should `App\Livewire\` stay flat or also be split per domain?** Three approaches:
+   a. Keep `App\Livewire\<Domain>\*` as today and just rename `Hris/` → `Domain/Hris/Livewire/`.
+   b. Move all Livewire under `App\Domain\X\Livewire\` and register each via service provider.
+   c. Keep Livewire flat under `App\Livewire\` permanently as a UI-only layer (lowest risk).
+10. **Who is responsible for `OrgStructure` change validation?** Currently spread across `Division::canBeChildOf()` (model), `StructureManagementResource\Pages\ListOrgStructure::reparent()` (page), and `SupervisorManagementResource` (resource). Consolidate into `App\Domain\OrgStructure\Actions\*` so there is one place to test.
+
+---
+
+## Appendix A — File-Level Stats
+
+### Largest files
+```
+804  app/Filament/Hris/Resources/ProfileResource.php
+575  app/Filament/Gsms/Resources/LandStructureResource.php
+548  app/Filament/Gsms/Resources/HeavyEquipmentResource.php
+527  app/Filament/Gsms/Resources/VehicleResource.php
+505  app/Filament/Hris/Resources/LeaveApplicationResource.php
+392  app/Filament/Hris/Resources/FaceBiometricEnrollmentResource.php
+294  app/Filament/Gsms/Resources/TripTicketResource.php
+246  app/Filament/Gsms/Resources/DriverResource.php
+244  app/Livewire/FaceBiometrics/AttendanceKiosk.php
+242  app/Services/FaceBiometricService.php
+242  app/Filament/Hris/Resources/ServiceRecordResource.php
+235  app/Filament/Hris/Resources/TrainingResource.php
+219  app/Filament/Hris/Resources/IndividualPerformanceResource.php
+219  app/Filament/Admin/Resources/RoleResource.php
+217  app/Filament/Hris/Resources/LeaveCardResource.php
+208  app/Filament/Hris/Resources/AttendanceResource.php
+206  app/Filament/Gsms/Resources/EquipmentResource.php
+198  app/Models/Profile.php
+195  app/Filament/Hris/Resources/BiometricEnrollmentResource.php
+172  app/Livewire/FaceBiometrics/EnrollmentKiosk.php
+170  app/Filament/Hris/Resources/SupervisorManagementResource.php
+170  app/Filament/Admin/Resources/UserResource.php
+159  app/Models/LeaveApplication.php
+159  app/Models/Division.php
+142  app/Models/User.php
+```
+
+### Inventory totals
+- 41 Eloquent models
+- 80 migrations
+- 26 Filament resources (excluding pages)
+- 30 Livewire components
+- 2 services, 2 jobs, 0 actions, 0 form requests, 0 events
+- 2 controllers (one base, one health-check)
+- 26 policies
+- 4 panel providers, 1 app service provider, 1 domain service provider (FaceBiometrics)
+- 4 seeders, 2 factories
+- 4 placeholder test files (2 actual tests, both `assertStatus(200)` no-ops)
+
+### Existing strengths (don't lose these during refactor)
+- `FaceBiometricService` — well-structured config-driven HTTP client.
+- `Division` — clean adjacency-list model with proper return types and method docs.
+- `face_biometrics` config + dedicated exceptions + value objects + service provider — best-organised feature.
+- `SyncOnlineAttendance` job — idempotent, well-logged.
+- `routes/console.php` — clean.
+- 26 policies exist (skeletons, but in place).
+- Filament panel discovery is working ✓ (after the fix earlier in this session).
+
+---
+
+*End of findings.*

@@ -1,0 +1,842 @@
+# Remediation Instructions — Address Findings in `audit/findings01.txt`
+
+> **CONTEXT:** This is the `mct-staging` Laravel 12 / Filament 3 application — **PRODUCTION ENVIRONMENT**. Every action you take affects live users, live payroll, live attendance, and live biometric data. Treat every change as if a single mistake costs a day of recovery.
+>
+> Use Laravel Boost MCP (`search-docs`, `tinker`, `database-query`, `database-schema`, `list-artisan-commands`, `get-absolute-url`) for ANY Laravel-specific decision. Do not guess Laravel/Filament/Livewire APIs from training data — search the docs.
+
+---
+
+## 0. Hard Operating Rules (Inviolable)
+
+You **MUST** obey every rule below. A rule violation is grounds for immediate stop and human review.
+
+### 0.1 Approval gates
+1. **Read `audit/findings01.txt` end-to-end before writing a single line of code.** Internalise the Domain Map (§ 2), the Findings (§ 3), the Phased Plan (§ 4), the Risks (§ 5), and the Open Questions (§ 6).
+2. **Phase 1 is the ONLY phase you may execute semi-autonomously.** Phase 2 (DDD pilot) and Phase 3 (full domain reorg) require explicit, written human approval after Phase 1 has shipped and been observed in production for at least 7 days.
+3. **Every task below is itself a gate.** Complete one task, report results, wait for approval, then proceed to the next. Do NOT batch tasks 1.1 through 1.11 into one mega-commit.
+4. **Open Questions in audit § 6 must be answered by a human before any task that depends on them runs.** Tasks below explicitly call out which Open Questions block them.
+
+### 0.2 Destructive-operation policy
+You are **forbidden** to do the following without an explicit human directive in the conversation, in writing, naming the operation:
+- `git reset --hard`, `git push --force`, `git branch -D`, `git checkout -- .`, `git clean -fd`
+- Any `--no-verify` flag on commit/push
+- Any `--force` flag on `migrate`, `migrate:fresh`, `migrate:rollback`, `db:wipe`
+- `php artisan migrate:fresh`, `migrate:reset`, `db:wipe`
+- `composer require <anything>`, `composer remove <anything>`, `composer update`
+- `npm install <package>`, `npm uninstall`, `npm update`
+- Editing `.env` directly (use config layer; if `.env` truly must change, the human does it themselves)
+- Deleting or truncating any database table
+- Deleting files from `storage/`, `public/`, `database/migrations/`, `database/seeders/`, `tests/`
+- Modifying `composer.json` outside the `autoload.psr-4` section
+- Modifying `bootstrap/cache/*` directly
+
+### 0.3 Pre-flight checklist (run before every task)
+```bash
+# 1. Verify clean working tree (no uncommitted changes from previous task)
+git status
+
+# 2. Verify branch (must NOT be main/master/production)
+git branch --show-current
+
+# 3. Verify last commit (so you know your starting point)
+git log -1 --oneline
+
+# 4. Verify application health
+php artisan about
+
+# 5. Ask the human, in writing, every time:
+#    "Is there a fresh database backup taken within the last 60 minutes? (yes/no)"
+#    If 'no' → stop. The human must take a backup before you proceed.
+```
+
+If ANY check fails or the human cannot confirm a fresh backup, **stop and report**. Do not proceed.
+
+### 0.4 Verification policy
+- After every code change: run `vendor/bin/pint --dirty` (NEVER `pint --test`).
+- After every migration: run `php artisan migrate --pretend` first; post the SQL; wait for written approval; only then run for real.
+- After every change: run a targeted Pest test (`php artisan test --filter <name>`) if one exists. If none exists, run a `tinker` smoke check that exercises the code path.
+- After every change to a Filament resource, page, or widget: visit the URL with `get-absolute-url` and verify no 500 / no missing-component error / no console exception.
+- After every multi-file change: run `php artisan optimize:clear` and re-verify.
+
+### 0.5 Commit & PR discipline
+- One task = one commit.
+- Commit message format: `audit: address finding <ID> — <short title>` (e.g. `audit: address finding M-1 — add 'section' to divisions.type enum`).
+- Co-author line: `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`.
+- After all Phase 1 tasks complete: open **ONE** PR named `Phase 1: address audit findings 01` listing every finding ID resolved.
+- Never push to `main` / `master` / `production` directly.
+- Never delete a remote branch you didn't create.
+
+### 0.6 Reporting cadence
+- After each task: post a structured report with:
+  - Task ID + finding IDs addressed
+  - Files changed (`git diff --stat` output)
+  - Verification command(s) run and their output
+  - Migration `--pretend` SQL (if applicable)
+  - One-line risk note ("breaks nothing", "may affect X if Y")
+- After every 3rd task: post a running summary of what's been merged vs pending.
+
+---
+
+## 1. Phase 1 — Production-Safe Remediations (Execute Strictly In Order)
+
+The 11 tasks below correspond to `audit/findings01.txt` § 4 Phase 1. They are ordered so each builds confidence for the next. Do **NOT** reorder.
+
+---
+
+### Task 1.1 — CRITICAL: Fix `divisions.type` enum to permit `'section'`
+
+**Finding:** M-1
+**File:** `database/migrations/2026_05_22_151151_add_org_structure_to_divisions_table.php:19`
+**Depends on Open Question:** Q1 (Section under Section?), Q5 (ALTER enum vs varchar+CHECK?)
+
+#### 1.1.0 Gate: Get Q1 and Q5 answered first
+Stop and ask the human, verbatim:
+> "Audit Open Question Q1: Should sections be nestable (Section under Section), or only directly under Division? Answer affects `Division::ALLOWED_PARENT_TYPES['section']`.
+>
+> Audit Open Question Q5: For `divisions.type`, should the new migration (a) ALTER the existing PG enum type to add 'section', or (b) drop the enum and convert to varchar with a CHECK constraint listing allowed values?
+>
+> I will not proceed without an explicit decision on both."
+
+Do NOT proceed until both are answered in writing.
+
+#### 1.1.1 Investigate current schema
+Use `database-schema` (Boost) or:
+```sql
+SELECT column_name, data_type, udt_name
+FROM information_schema.columns
+WHERE table_schema = 'mct_proddb' AND table_name = 'divisions' AND column_name = 'type';
+```
+Determine whether `type` is:
+- A PostgreSQL native ENUM type (`udt_name` will be a custom type name)
+- A varchar with a CHECK constraint (`udt_name = 'varchar'`)
+
+Report findings to human before writing the migration.
+
+#### 1.1.2 Write the migration
+```bash
+php artisan make:migration alter_divisions_type_allow_section --no-interaction
+```
+
+Inside, based on the schema and Q5 answer:
+- **If PG ENUM type + Q5=ALTER:** Use `DB::statement("ALTER TYPE <enum_type_name> ADD VALUE IF NOT EXISTS 'section'");`
+- **If varchar+CHECK + Q5=ALTER:** Drop the existing CHECK constraint and re-add it with `'section'` included.
+- **If Q5=convert to varchar+CHECK:** Drop the enum type, alter column to varchar, add CHECK constraint with full allowed-values list including `'section'`.
+
+`down()` must reverse the operation safely. For PG ENUM, removing a value is non-trivial — `down()` may be intentionally a no-op with a comment explaining why.
+
+#### 1.1.3 Pretend + approval
+```bash
+php artisan migrate --pretend
+```
+Post the SQL output. Wait for written approval. Do not run.
+
+#### 1.1.4 Execute
+After approval:
+```bash
+php artisan migrate
+```
+
+#### 1.1.5 Verify
+Via `tinker`:
+```php
+$d = \App\Models\Division::create([
+    'type' => 'section',
+    'name' => 'Audit Test Section',
+    'abbreviation' => 'ATS',
+    'parent_id' => \App\Models\Division::where('type', 'division')->first()?->id,
+]);
+$d->delete();
+echo "OK\n";
+```
+Expected output: `OK`. Any exception = failure → roll back.
+
+#### 1.1.6 Rollback procedure (if Task 1.1.4 fails)
+1. `php artisan migrate:rollback --step=1` (only this migration).
+2. Manually verify `divisions` table is back to its prior state via `database-query`.
+3. Report failure with full stack trace.
+
+**Acceptance criteria:**
+- Division with `type='section'` can be created.
+- Existing rows with other types unaffected.
+- `Division::TYPE_LABELS['section']` resolves correctly in the Structure Management UI.
+
+---
+
+### Task 1.2 — Replace `env()` calls outside config files
+
+**Finding:** C-1
+**Files:**
+- `app/Livewire/Hris/AutoAttendance.php:44, 46`
+- `app/Livewire/Hris/Biometrics.php:71, 73`
+
+#### 1.2.1 Pre-decision check (Open Question Q2)
+The audit (V-2, V-3, D-5) flags both files as likely dead/broken. Before fixing env() calls, determine:
+
+```bash
+# Grep across the whole project
+```
+Search for: `AutoAttendance`, `App\Livewire\Hris\AutoAttendance`, `Biometrics::class`, `App\Livewire\Hris\Biometrics`, `livewire('hris.biometrics')`, `livewire('hris.auto-attendance')`, the kebab-case Livewire component names, and any view that uses these.
+
+Specifically check:
+- `routes/web.php` (the `/biometrics/{phase}` route at line 13)
+- All `resources/views/**/*.blade.php`
+- All other Livewire components
+
+Report findings to human. Ask Open Question Q2:
+> "Audit Open Question Q2: Should we retire the legacy CompreFace v1 system (`BiometricEnrollment` model, `Livewire\Hris\Biometrics`, `Livewire\Hris\AutoAttendance`, `/biometrics/{phase}` route, `BiometricEnrollmentResource`) now that Face Biometrics v2 (pgvector) is in place? If yes, Tasks 1.2 and 1.3 merge into a single deletion. If no, I will fix the env() calls and leave the components alive."
+
+#### 1.2.2 Branch A — if human says "fix env(), keep alive"
+1. Replace `env('COMPREFACE_KEY')` → `config('services.compreface.key')`.
+2. Replace `env('COMPREFACE_URL')` → `config('services.compreface.url')`.
+3. `php artisan config:clear && php artisan config:cache`.
+4. Verify via tinker: `dd(config('services.compreface.url'))` returns the env value.
+5. Visit the route that triggers the component; confirm no functional change.
+
+#### 1.2.3 Branch B — if human says "retire v1"
+Merge with Task 1.3 below; skip 1.2.2.
+
+**Acceptance criteria:**
+- `grep -r "env(" app/` returns ZERO hits outside config/.
+- The functionality of any kept component is unchanged.
+
+---
+
+### Task 1.3 — Delete dead code (verified)
+
+**Findings:** D-3, D-5, V-2, V-3, V-4, R-2, R-3, V-7
+**Depends on Open Question:** Q2
+
+**Candidates (delete ONLY if zero refs found):**
+
+| Path | Audit ref | Required pre-delete check |
+|---|---|---|
+| `app/Livewire/Hris/Biometrics.php` | V-2 | No refs anywhere |
+| `app/Livewire/Hris/AutoAttendance.php` | V-3 | No refs anywhere |
+| `app/Livewire/Hris/AttendanceManager.php` | V-4 | No refs anywhere |
+| `app/Livewire/Hris/AttendanceMode.php` | V-4 | No refs anywhere |
+| `app/Models/OtherFacility.php` | D-3 | No migration creates `other_facilities` table; no refs anywhere |
+| `resources/views/biometrics.blade.php` | R-3 | Only after V-2 / V-3 deleted |
+| `resources/views/attendancemode.blade.php` | R-2 | Only after V-4 deleted |
+| `resources/views/livewire/hris/biometrics.blade.php` | V-7 | After V-2 deleted |
+| `resources/views/livewire/hris/auto-attendance.blade.php` | V-7 | After V-3 deleted |
+| `resources/views/livewire/hris/attendance-manager.blade.php` | V-7 | After V-4 deleted |
+| `resources/views/livewire/hris/attendance-mode.blade.php` | V-7 | After V-4 deleted |
+| `routes/web.php:11` (`/attendance-mode` route) | R-2 | After view deleted |
+| `routes/web.php:13-15` (`/biometrics/{phase}` route) | R-3 | After view + component deleted |
+
+#### 1.3.1 Per-file verification protocol
+For EACH candidate:
+1. `Grep` for the class FQCN.
+2. `Grep` for the kebab-case Livewire name (Livewire components only).
+3. `Grep` for the filename without extension.
+4. Check `routes/web.php` for path references.
+5. Check all `resources/views/**/*.blade.php` for `@livewire(...)` or `<livewire:...>` references.
+6. If ANY reference found → halt that file; report; ask human.
+7. If ZERO references → propose deletion.
+
+#### 1.3.2 Pre-deletion smoke test
+Before deleting, manually visit:
+- `/admin` dashboard
+- `/hris` dashboard
+- `/gsms` dashboard
+- `/home` dashboard
+- Every route in `routes/web.php`
+
+Record which pages load cleanly NOW so you have a baseline.
+
+#### 1.3.3 Deletion order
+1. Livewire PHP classes first (V-2, V-3, V-4).
+2. Their Blade views (V-7).
+3. The standalone Blade views (R-2, R-3).
+4. The route declarations (R-2, R-3).
+5. Models last (D-3 OtherFacility).
+
+After each deletion, re-run the smoke test from 1.3.2. Compare to baseline.
+
+#### 1.3.4 Rollback procedure
+If smoke test reveals a break:
+- `git revert HEAD` immediately.
+- Report which deletion broke what.
+
+**Acceptance criteria:**
+- All previously-passing pages still pass.
+- No 500s, no missing-component errors, no broken navigation.
+- `grep` confirms ZERO remaining references to deleted classes.
+
+---
+
+### Task 1.4 — Rename typo'd files
+
+**Findings:** M-6, V-5
+
+#### 1.4.1 Migration filename rename (M-6)
+File: `database/migrations/2025_07_03_033356_add_attachment_to_elitibility.php` → `add_attachment_to_eligibility.php`
+
+This migration has already run in production. Renaming the FILE only is cosmetic; the `migrations` table records the original name.
+
+**Decision:** This is a low-value cosmetic change in a production environment. **Recommend SKIPPING** this rename unless the human explicitly requests it, because:
+- The `migrations` table will still show `add_attachment_to_elitibility`, so the rename creates a mismatch.
+- Renaming requires also updating the `migrations` table row, which is a write to a Laravel-managed system table.
+
+Ask the human: "Should I skip the M-6 filename rename to avoid touching the `migrations` table, or do you want the rename + UPDATE on `migrations.migration`?"
+
+#### 1.4.2 VehicleInsurace → VehicleInsurance rename (V-5)
+
+This IS worth doing — affects code, not data.
+
+##### 1.4.2.1 Find every reference
+`Grep` for: `VehicleInsurace`, `vehicle-insurace`, `VehicleInsurace::class`.
+
+Document every hit. Expected hits:
+- `app/Livewire/Gsms/VehicleInsurace.php` (class definition)
+- `resources/views/livewire/gsms/vehicle-insurace.blade.php` (view)
+- Any Filament resource / Blade view that includes it as `<livewire:gsms.vehicle-insurace />`
+
+##### 1.4.2.2 Atomic rename in ONE commit
+1. Create new class file `VehicleInsurance.php` with the renamed class.
+2. Create new view `vehicle-insurance.blade.php` with the same content.
+3. Update every reference to use the new name.
+4. Delete the old class file.
+5. Delete the old view file.
+6. Run `php artisan view:clear && php artisan optimize:clear`.
+7. Run `vendor/bin/pint --dirty`.
+
+##### 1.4.2.3 Verify
+Visit the GSMS page that includes this Livewire component. Confirm it renders.
+
+##### 1.4.2.4 Activity log note
+`spatie/activitylog` stores FQCN — old log rows will reference `VehicleInsurace`. This is accepted cosmetic loss; no remediation needed.
+
+**Acceptance criteria:**
+- Grep for `VehicleInsurace` returns zero hits.
+- Page that uses the component renders identically.
+
+---
+
+### Task 1.5 — Add missing database indexes
+
+**Findings:** M-8, M-9, M-10, M-11, M-12, M-13, M-14
+
+#### 1.5.1 Pre-index verification
+For each table below, query existing indexes:
+```sql
+SELECT indexname, indexdef FROM pg_indexes
+WHERE schemaname = 'mct_proddb' AND tablename = '<table>';
+```
+Skip any index that already exists.
+
+#### 1.5.2 Index inventory
+
+| # | Migration name | Table | Index | Justification |
+|---|---|---|---|---|
+| 1 | `add_idx_attendances_employee_date` | `attendances` | `(employee_number, attendance_date)` | DTR generation in `routes/web.php:14-34, 36-55` |
+| 2 | `add_idx_attendances_profile_date` | `attendances` | `(profile_id, attendance_date)` | DTR viewer per-profile lookups |
+| 3 | `add_idx_leave_cards_profile_date` | `leave_cards` | `(profile_id, date_applied)` | `LeaveCardResource` table default sort + profile filter |
+| 4 | `add_idx_service_records_profile_from` | `service_records` | `(profile_id, from)` | `LeaveApplicationResource.php:87-92` per-profile-select query |
+| 5 | `add_idx_leave_inclusive_dates_application_date` | `leave_inclusive_dates` | `(leave_application_id, date)` | Duration sum joins |
+| 6 | `add_idx_divisions_parent_sort` | `divisions` | `(parent_id, sort_order)` | Org tree load in `Pages/ListOrgStructure.php:31-40` |
+| 7 | `add_idx_face_attendances_profile_date` | `face_attendances` | `(profile_id, attendance_date)` | Verify schema first; skip if already indexed |
+
+#### 1.5.3 Production-safe index creation
+PostgreSQL `CREATE INDEX` locks the table for writes. For production tables with significant row counts (especially `attendances`, `face_embeddings`), use `CREATE INDEX CONCURRENTLY`.
+
+Laravel's `Blueprint::index()` does NOT emit `CONCURRENTLY`. You **MUST** use:
+```php
+public function up(): void {
+    DB::statement('CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_attendances_employee_date ON mct_proddb.attendances (employee_number, attendance_date)');
+}
+
+public function down(): void {
+    DB::statement('DROP INDEX CONCURRENTLY IF EXISTS mct_proddb.idx_attendances_employee_date');
+}
+```
+
+Important: `CREATE INDEX CONCURRENTLY` cannot run inside a transaction. You must disable Laravel's auto-transaction wrapping:
+```php
+public $withinTransaction = false;
+```
+
+Confirm this approach with `search-docs` query `"create index concurrently postgresql laravel migration"` before writing.
+
+#### 1.5.4 Per-index protocol
+For EACH index (one migration each):
+1. Create migration: `php artisan make:migration add_idx_<table>_<cols> --no-interaction`.
+2. Use the CONCURRENTLY pattern above.
+3. `php artisan migrate --pretend` → post SQL.
+4. Wait for written approval.
+5. Run during a low-traffic window (ask human when).
+6. Verify with `EXPLAIN ANALYZE` on the most-impacted query (e.g. `SELECT * FROM attendances WHERE employee_number = ? AND attendance_date = ?`). Confirm the new index is used.
+7. Report `EXPLAIN` output.
+
+#### 1.5.5 Rollback
+Each migration has a `DROP INDEX CONCURRENTLY` `down()`. If a query plan regresses unexpectedly, roll back that one migration.
+
+**Acceptance criteria:**
+- All 7 indexes (minus any pre-existing) appear in `pg_indexes`.
+- `EXPLAIN ANALYZE` on flagged queries shows the new index in use.
+- Production query latency on impacted endpoints does not regress.
+
+---
+
+### Task 1.6 — Move shared `CustomAccountWidget` to a shared namespace
+
+**Finding:** F-2
+**Current FQCN:** `App\Filament\Home\Resources\HomeResource\Widgets\CustomAccountWidget`
+**Target FQCN:** `App\Shared\Filament\Widgets\AccountStatusWidget`
+
+#### 1.6.1 Pre-move grep
+Find every reference to the current FQCN:
+- `app/Providers/Filament/HrisPanelProvider.php:41`
+- `app/Providers/Filament/AdminPanelProvider.php:46`
+- `app/Providers/Filament/GsmsPanelProvider.php:47`
+- `app/Providers/Filament/HomePanelProvider.php` (verify)
+
+#### 1.6.2 Atomic move
+1. Create `app/Shared/Filament/Widgets/AccountStatusWidget.php` with namespace `App\Shared\Filament\Widgets`, class renamed.
+2. Move the Blade view from `resources/views/filament/home/resources/home-resource/widgets/custom-account-widget.blade.php` → `resources/views/shared/filament/widgets/account-status-widget.blade.php`. Update `$view` property in the class to `'shared.filament.widgets.account-status-widget'`.
+3. Update all four panel providers' `widgets([...])` arrays to reference the new FQCN.
+4. Delete the old class file and old view file in the SAME commit.
+5. Update any Filament resource that also references it.
+
+#### 1.6.3 Verify
+- `php artisan filament:cache-components && php artisan optimize:clear`.
+- Visit `/admin`, `/hris`, `/gsms`, `/home` — confirm widget renders identically on each.
+- Check browser console for "Unable to find component" errors.
+
+#### 1.6.4 Rollback
+`git revert HEAD` if any panel breaks. The widget is non-critical (display only).
+
+**Acceptance criteria:**
+- Widget renders on all four panels.
+- Zero `App\Filament\Home\Resources\HomeResource\Widgets\CustomAccountWidget` references remain.
+
+---
+
+### Task 1.7 — Add `FilamentEditProfilePlugin` to HRIS panel
+
+**Finding:** F-1
+
+The earlier session added a referrer-based `/edit-profile` redirect. That patch is fine, but the underlying inconsistency (HRIS panel lacks the plugin) should be resolved.
+
+#### 1.7.1 Investigate
+1. Read `HomePanelProvider.php:66-88` and `GsmsPanelProvider.php:69-87` carefully.
+2. Confirm what `customProfileComponents`, `setNavigationLabel`, `setNavigationGroup`, `setIcon`, `setSort`, `shouldShowAvatarForm` are configured to.
+
+#### 1.7.2 Add the plugin to `HrisPanelProvider`
+Mirror the configuration from `HomePanelProvider` exactly. The plugins array in `HrisPanelProvider` currently only has `FilamentShieldPlugin::make()` (line 61). Add `FilamentEditProfilePlugin::make()->...` with the same chain as Home.
+
+#### 1.7.3 Verify
+1. `php artisan filament:cache-components && php artisan optimize:clear`.
+2. `php artisan route:list --path=hris/edit-profile` — confirm `filament.HRIS.pages.edit-profile` route appears.
+3. While logged in as a user with HRIS access, visit `/hris/edit-profile` directly. Confirm it loads.
+4. Click the "Account Settings" item in the HRIS user menu (currently `/edit-profile` redirect). Confirm it lands on either `/hris/edit-profile` or `/home/edit-profile` (depending on referrer logic).
+
+#### 1.7.4 Decision point (after Task 1.7 verified)
+Ask the human:
+> "HRIS now has its own `/hris/edit-profile`. Should I (a) update `HrisPanelProvider::userMenuItems` URL from `/edit-profile` to a panel-specific route so the redirect isn't needed, or (b) keep the `/edit-profile` referrer-redirect as a defensive fallback for all panels?"
+
+Recommend (b) (keep the redirect — defensive, low cost). But await decision.
+
+**Acceptance criteria:**
+- `/hris/edit-profile` returns 200 and renders the edit-profile form.
+- Other panels unaffected.
+
+---
+
+### Task 1.8 — Move PDF/print closures into single-action controllers
+
+**Finding:** R-1, § 3.6
+**Source:** `routes/web.php:14-128` (5 closures, ~115 LOC)
+
+Execute in this order (smallest → largest to build confidence).
+
+#### Task 1.8.1 — `/leave/print/{leaveApplication}` (4 LOC)
+Target: `App\Http\Controllers\Hris\Leave\PrintLeaveFormController`
+
+1. `php artisan make:controller Hris/Leave/PrintLeaveFormController --invokable --no-interaction`
+2. Copy closure body verbatim into `__invoke(LeaveApplication $leaveApplication)`. Inject `Request` only if needed.
+3. Update `routes/web.php`:
+   ```php
+   Route::get('/leave/print/{leaveApplication}', \App\Http\Controllers\Hris\Leave\PrintLeaveFormController::class)
+       ->name('leave.print');
+   ```
+4. **Route name MUST remain `leave.print`** — Filament resources reference it.
+5. Verify: `php artisan route:list --name=leave.print`.
+6. Render a known leave application PDF before AND after the change. Compare.
+
+#### Task 1.8.2 — `/service-record/print/{profile}` (37 LOC)
+Target: `App\Http\Controllers\Hris\ServiceRecord\PrintServiceRecordController`
+
+Same protocol as 1.8.1. Be careful with the temp-file handling in the closure (lines 96-118): the `try { ... } finally { @unlink(...) }` block must be preserved exactly.
+
+#### Task 1.8.3 — `/dtr/print/{profile}` (20 LOC)
+Target: `App\Http\Controllers\Hris\Dtr\PrintProfileDtrController`
+
+#### Task 1.8.4 — `/dtr/print/division/{division}` (19 LOC)
+Target: `App\Http\Controllers\Hris\Dtr\PrintDivisionDtrController`
+
+#### Task 1.8.5 — `/dtr/print/jo/{division}` (26 LOC)
+Target: `App\Http\Controllers\Hris\Dtr\PrintJobOrderDtrController`
+
+#### 1.8.6 — After all five
+1. Confirm `routes/web.php` has zero remaining closures with logic (only `Route::view(...)` or `Route::get(..., Controller::class)`).
+2. Run `php artisan route:cache` (only if `APP_ENV=production` is being verified) and `route:clear`.
+3. Render one of each PDF type, byte-compare to baseline (content; metadata may differ).
+
+**Critical:** Do NOT change any route name. Do NOT change route parameter names. Filament resources hardcode these names.
+
+**Acceptance criteria:**
+- All 5 routes still respond with identical PDF content.
+- Route names `leave.print`, `service-record.print`, `dtr.print`, `dtr.print.division`, `dtr.print.jo` all resolve to the controllers.
+
+---
+
+### Task 1.9 — Standardise model cast style
+
+**Finding:** Models § 3.2
+
+Replace `$casts` property and `$dates` property with the Laravel 12-preferred `casts()` method on:
+- `app/Models/Profile.php` (`$dates` line 40, `$casts` line 84)
+- `app/Models/User.php` (malformed `$hidden` line 55-59, `$dates` line 61-63)
+- `app/Models/Attendance.php` (`$dates` line 40-45)
+- `app/Models/ServiceRecord.php` (`$dates` line 24-30, `$casts` line 32-36 — redundant)
+- `app/Models/FaceBiometrics/FaceProfile.php` (`$casts` line 26-30)
+- `app/Models/BiometricEnrollment.php` (`$casts` line 30-33)
+
+#### 1.9.1 Special handling for `User.php`
+Line 55-59:
+```php
+protected $hidden = [
+    'password',
+    'remember_token',
+    'is_approved' => 'boolean',  // ← THIS IS WRONG — it's a cast disguised as a hide
+];
+```
+- The `'is_approved' => 'boolean'` entry is a CAST, not a hide directive. It silently does nothing in `$hidden`.
+- Move `is_approved` → `casts()` method as `'is_approved' => 'boolean'`.
+- Keep `$hidden` as `['password', 'remember_token']` only.
+
+#### 1.9.2 Special handling for `ServiceRecord.php`
+Both `$dates` and `$casts` define `from` and `to` as dates. They're redundant. Use `casts()` only.
+
+#### 1.9.3 Per-model protocol
+1. Read the current `$casts` array and `$dates` array.
+2. Write a new `casts(): array` method that returns the union (with `$dates` entries cast as `'date'` or `'datetime'` depending on column type).
+3. Delete the `$casts` property and `$dates` property.
+4. Run `vendor/bin/pint --dirty`.
+5. Verify with `tinker`:
+   ```php
+   $u = \App\Models\User::first();
+   var_dump($u->getCasts());  // confirm all expected keys
+   var_dump($u->toArray());   // confirm date format unchanged, hidden fields hidden
+   ```
+6. Run any Pest test that touches the model (currently minimal, but run anyway).
+
+#### 1.9.4 Verify no serialization regression
+- Visit a Filament resource that shows the model (e.g. ProfileResource list).
+- Confirm dates render the same.
+- Confirm booleans render the same.
+- API responses (if any): confirm JSON structure identical.
+
+**Acceptance criteria:**
+- Zero `$casts` and `$dates` properties remaining on those 6 models.
+- `$u->toArray()` output unchanged.
+- User `is_approved` correctly hidden? — Actually `is_approved` is NOT in `$hidden`; it just shouldn't have been there. Confirm it serializes as boolean in API output.
+
+---
+
+### Task 1.10 — Rename snake_case relationship methods on `Profile`
+
+**Finding:** Models § 3.2 (Profile.php lines 113, 133)
+
+`Profile::work_experiences()` → `workExperiences()`
+`Profile::disciplinary_actions()` → `disciplinaryActions()`
+
+#### 1.10.1 Find every call site
+`Grep` for: `work_experiences`, `->work_experiences(`, `'work_experiences'`, `"work_experiences"`, `disciplinary_actions`, `->disciplinary_actions(`, `'disciplinary_actions'`, `"disciplinary_actions"`.
+
+Expected hits:
+- `app/Filament/Hris/Resources/ProfileResource.php` (Filament `Repeater::make('work_experiences')->relationship()` — relationship name matters here)
+- Possibly `resources/views/livewire/home/*` or other Livewire components
+- Any `$profile->work_experiences` access
+
+#### 1.10.2 Safe rename strategy (production)
+**Do NOT do a hard rename.** Instead:
+
+1. Add new camelCase methods that return the same relationship:
+   ```php
+   public function workExperiences(): HasMany {
+       return $this->hasMany(WorkExperience::class);
+   }
+
+   public function disciplinaryActions(): HasMany {
+       return $this->hasMany(DisciplinaryAction::class);
+   }
+   ```
+2. Mark old snake_case methods as `@deprecated` and have them delegate:
+   ```php
+   /** @deprecated Use workExperiences() */
+   public function work_experiences(): HasMany {
+       return $this->workExperiences();
+   }
+   ```
+3. Update Filament `Repeater::make('work_experiences')` calls — but Filament `relationship()` uses the method name to resolve the relation. Test carefully: change ONE Repeater to camelCase, verify save/load works, then change the rest.
+4. After all call sites confirmed working with camelCase, the snake_case methods can be removed in a FUTURE PR.
+5. **Do NOT delete the snake_case methods in this Phase 1 PR.** Deletion is a separate, later commit.
+
+#### 1.10.3 Verify
+- Open a profile edit page in Filament HRIS.
+- Add a work experience row in the Repeater. Save.
+- Confirm DB record created.
+- Edit existing work experience row. Save.
+- Confirm DB record updated.
+- Same for disciplinary actions.
+
+**Acceptance criteria:**
+- Both camelCase and snake_case methods coexist.
+- Profile edit/save flow works identically.
+- No test failures.
+
+---
+
+### Task 1.11 — Add return type hints to all relationship methods
+
+**Finding:** Models § 3.2 (universal)
+
+Mechanical sweep across all 41 models. Add return type hints (`: BelongsTo`, `: HasMany`, `: BelongsToMany`, `: HasOne`, `: MorphMany`, etc.) to relationship methods.
+
+#### 1.11.1 Discovery
+`Grep` (multiline) for relationship method patterns missing return types:
+```regex
+public function \w+\(\)\s*\{\s*return \$this->(belongsTo|hasMany|hasOne|belongsToMany|morphMany|morphOne|morphTo)
+```
+
+Compare against:
+```regex
+public function \w+\(\)\s*:\s*(BelongsTo|HasMany|...)
+```
+
+#### 1.11.2 Per-file changes
+For each method missing a return type:
+1. Add the right return type.
+2. Add the corresponding `use` import if missing.
+3. Save.
+
+Specific known offenders:
+- `Profile::division()` (line 158) — add `: BelongsTo`.
+- `Profile::tripTickets()` (line 194) — add `: BelongsToMany`.
+- `User::division()` (line 79) — add `: BelongsTo`.
+- `ServiceRecord::profile()` (line 54) — add `: BelongsTo`.
+
+(Plus 30+ others across the codebase — discover via grep.)
+
+#### 1.11.3 Verify
+- Run `vendor/bin/pint --dirty`.
+- Run `php artisan about` — no errors.
+- Visit a sample of Filament resources — confirm relationships still load.
+- Run `composer dump-autoload` (no-op-ish but harmless).
+
+**Acceptance criteria:**
+- Every relationship method has an explicit return type.
+- No runtime errors.
+- All Filament resources still render.
+
+---
+
+## 2. Phase 1 Completion Checklist
+
+Before opening the Phase 1 PR, confirm all of:
+
+- [ ] Task 1.1 — `divisions.type` accepts `'section'` ✓ (verified with tinker)
+- [ ] Task 1.2 — Zero `env()` calls outside `config/` ✓ (grep returns empty)
+- [ ] Task 1.3 — Dead code deleted OR retained per Q2 decision ✓
+- [ ] Task 1.4 — `VehicleInsurace` renamed (M-6 decision recorded) ✓
+- [ ] Task 1.5 — All 7 indexes added (or skipped if pre-existing) ✓ (verified in `pg_indexes`)
+- [ ] Task 1.6 — `CustomAccountWidget` moved to `App\Shared\Filament\Widgets` ✓
+- [ ] Task 1.7 — HRIS panel has `FilamentEditProfilePlugin` ✓
+- [ ] Task 1.8 — 5 invokable controllers replace route closures ✓ (route names preserved)
+- [ ] Task 1.9 — All 6 models use `casts()` method ✓
+- [ ] Task 1.10 — `Profile` has camelCase relationship methods (snake_case retained as deprecated) ✓
+- [ ] Task 1.11 — All relationship methods have return types ✓
+- [ ] `vendor/bin/pint` reports clean
+- [ ] No 500 errors on any panel during smoke test
+- [ ] All Phase 1 commits have clear `audit: address finding <ID> — ...` messages
+- [ ] PR description references each finding ID resolved
+
+When all checked, open the Phase 1 PR and **STOP**. Do not proceed to Phase 2 until:
+1. Phase 1 PR is merged.
+2. Production has been observed for ≥ 7 days with no incident attributable to Phase 1.
+3. Human gives explicit written go-ahead for Phase 2.
+
+---
+
+## 3. Phase 2 — DDD Pilot (DO NOT START WITHOUT WRITTEN APPROVAL)
+
+This section is reference-only until the human authorizes Phase 2. When authorized, execute strictly per `audit/findings01.txt` § 4 Phase 2.
+
+### 3.1 Prerequisites
+- Phase 1 merged and stable for 7+ days.
+- Open Questions Q9 (Livewire namespace strategy) answered.
+- A staging database that mirrors production is available for dry-run.
+
+### 3.2 Scope (FaceBiometrics ONLY)
+Move ONLY the FaceBiometrics domain in Phase 2. Other domains are Phase 3.
+
+Files to move (preserve exact namespacing per finding § 4 step 12):
+- `app/Models/FaceBiometrics/*` → `app/Domain/FaceBiometrics/Models/*`
+- `app/Services/FaceBiometricService.php` → `app/Domain/FaceBiometrics/Services/FaceBiometricService.php`
+- `app/Jobs/FaceBiometrics/BulkSeedFromProfilePicturesJob.php` → `app/Domain/FaceBiometrics/Jobs/`
+- `app/Exceptions/FaceBiometricException.php` → `app/Domain/FaceBiometrics/Exceptions/`
+- `app/ValueObjects/FaceBiometrics/VerifyResult.php` → `app/Domain/FaceBiometrics/ValueObjects/`
+- `app/Providers/FaceBiometricsServiceProvider.php` → `app/Domain/FaceBiometrics/Providers/`
+- `app/Http/Controllers/FaceBiometrics/HealthController.php` → `app/Domain/FaceBiometrics/Http/Controllers/`
+- `app/Filament/Hris/Resources/FaceBiometricEnrollmentResource.php` (+ Pages, Widgets) → `app/Domain/FaceBiometrics/Filament/Resources/`
+- `app/Livewire/FaceBiometrics/*` → `app/Domain/FaceBiometrics/Livewire/*` (only if Q9 answer permits)
+
+### 3.3 Required updates
+- `bootstrap/providers.php` — update `FaceBiometricsServiceProvider` FQCN.
+- `app/Providers/Filament/HrisPanelProvider.php` — add second `discoverResources()` for the new path.
+- `config/livewire.php` — IF Livewire components move, set up namespace registration in `FaceBiometricsServiceProvider::register()`.
+- Filament Shield permissions — run `php artisan shield:generate` after move. Write a migration to remap old permission names to new.
+- All call-site imports across the codebase (grep + update).
+
+### 3.4 Phase 2 also extracts these Actions (per audit § 3.5)
+Create new files (do NOT skip — this is the Phase 2 acceptance criterion):
+- `App\Domain\FaceBiometrics\Actions\EnrollFromProfilePictureAction` (from `FaceBiometricEnrollmentResource.php:154-199`)
+- `App\Domain\FaceBiometrics\Actions\AppendFaceTemplateAction` (from `:224-283`)
+- `App\Domain\FaceBiometrics\Actions\RemoveFaceEnrollmentAction` (from `:292-313`)
+- `App\Domain\FaceBiometrics\Actions\FinalizeKioskEnrollmentAction` (from `EnrollmentKiosk.php:89-155`)
+- `App\Domain\FaceBiometrics\Actions\RecordFaceAttendanceAction` (from `AttendanceKiosk` methods)
+- `App\Domain\FaceBiometrics\Repositories\FaceEmbeddingRepository` (wraps raw pgvector SQL out of `FaceEmbedding` model)
+
+### 3.5 Phase 2 mandatory tests
+Before merging:
+- Pest test: enroll from profile picture (happy path)
+- Pest test: append template (slot increments)
+- Pest test: kiosk verify happy path
+- Pest test: kiosk verify replay-rejected (nonce reuse)
+- Pest test: audit log entry created on every enrollment event
+
+### 3.6 Phase 2 acceptance
+- All FaceBiometrics functionality works identically pre- and post-move.
+- All 5 Action classes exist and are unit-tested.
+- `FaceEmbedding` model no longer contains raw `DB::statement` calls (moved to repository).
+- Filament Shield permissions remapped (no privilege regression).
+- Production deploy succeeds; no incident in 14 days.
+
+---
+
+## 4. Phase 3 — Full Domain Reorganisation (DO NOT START WITHOUT WRITTEN APPROVAL)
+
+Reference-only until authorized. Execute strictly per `audit/findings01.txt` § 4 Phase 3, one domain per PR, in this order:
+1. OrgStructure
+2. Leave
+3. Attendance
+4. Hris (largest — last)
+5. Gsms (Transport, Property, Receipts)
+6. Identity / Shared
+
+Each domain PR requires:
+- All existing tests still pass
+- New domain-specific Pest tests (≥1 happy-path test per Filament resource moved)
+- Filament Shield permissions regenerated and remapped
+- Pre/post smoke test of every panel
+- 7-day production observation before next domain starts
+
+---
+
+## 5. Standing Restrictions (Apply Across All Phases)
+
+### 5.1 Files / paths NEVER to touch without explicit approval
+- `composer.json` (except autoload.psr-4)
+- `composer.lock`
+- `package.json`, `package-lock.json`
+- `.env`, `.env.example`
+- `database/seeders/*` (production data shapers — never edit during refactor)
+- `tests/Pest.php`, `tests/TestCase.php` (test bootstrap)
+- `bootstrap/cache/*`
+- Anything under `vendor/`
+- Anything under `storage/app/` (user uploads — live data)
+- Anything under `storage/framework/` (cache — generated)
+- `public/build/` (Vite output)
+
+### 5.2 Commands NEVER to run without explicit approval
+- `php artisan migrate:fresh`
+- `php artisan migrate:reset`
+- `php artisan db:wipe`
+- `php artisan db:seed` against production
+- `php artisan tinker` write operations on production (read-only OK with care)
+- `php artisan filament:upgrade`
+- `composer require`, `composer update`, `composer remove`
+- `npm install <pkg>`, `npm update`
+- Any `*:clear` on a production environment without first warning the human (they cause brief slowdowns)
+
+### 5.3 Pull request rules
+- One PR per phase (Phase 1 = 1 PR; Phase 2 = 1 PR; each Phase 3 domain = 1 PR).
+- PR description must list every finding ID resolved.
+- PR description must include "Rollback plan" section.
+- PR description must list every migration file added.
+- PR description must include before/after `EXPLAIN ANALYZE` for index migrations.
+- Never merge own PR — human reviews and merges.
+
+### 5.4 Communication rules
+- Be terse. No marketing language. No "I'll definitely make sure to..." filler.
+- Report exactly what you did, what you verified, what you didn't do.
+- When in doubt, ask. The cost of a question is zero. The cost of a wrong assumption in production is large.
+- Quote file paths with line numbers: `app/Models/Profile.php:113`.
+- Paste actual command output. Don't paraphrase.
+
+---
+
+## 6. Emergency Procedures
+
+### 6.1 If production breaks during Phase 1
+1. **STOP all work immediately.**
+2. Identify the offending commit via `git log` + correlation with deploy time.
+3. Propose rollback via `git revert <sha>` (NOT `reset --hard`).
+4. Post the proposed revert SQL/diff for human approval.
+5. After approval, execute revert.
+6. Investigate root cause; do not retry without a new plan and approval.
+
+### 6.2 If a migration fails partway
+1. Capture the error message verbatim.
+2. Run `database-query` to inspect actual schema state vs expected.
+3. Do NOT run additional migrations.
+4. Report state to human; await instruction.
+5. If a destructive change was made (column drop), check backup availability.
+
+### 6.3 If Filament/Livewire components break
+1. Run `php artisan optimize:clear` first — often a stale cache.
+2. Run `php artisan filament:cache-components`.
+3. Re-run `composer dump-autoload`.
+4. If still broken, `git revert` the offending commit.
+5. Report.
+
+---
+
+## 7. Sign-off Conditions for "Phase 1 complete"
+
+When you believe Phase 1 is done, post a single summary report containing:
+
+1. **Findings resolved** — full list of finding IDs with status (Resolved / Deferred / Skipped) and reason for any deferral.
+2. **Migrations added** — list each new migration file + the SQL it ran.
+3. **Files added** — list new controllers, widgets, etc.
+4. **Files removed** — list deletions with the grep evidence that justified each.
+5. **Files renamed/moved** — before → after FQCN.
+6. **Verification log** — for each task, the command(s) you ran and the output that proved it worked.
+7. **Risks not yet addressed** — anything in `findings01.txt` Phase 1 that was deferred and why.
+8. **Open Questions answered** — Q1, Q2, Q5 minimum (the three that block Phase 1 tasks).
+9. **Smoke test result** — confirmation that all four panels load and key user flows work.
+10. **PR link** — single Phase 1 PR.
+
+Wait for written approval. **Do not merge yourself.**
+
+---
+
+*End of instructions. Begin with Task 1.1.0 (gate on Open Questions Q1 and Q5) only after the human has confirmed:*
+- *Read `audit/findings01.txt` in full*
+- *Pre-flight checklist passes (§ 0.3)*
+- *Fresh DB backup taken in last 60 minutes*
+- *Working on a feature branch, not main/master*
+
+*If any of those four conditions is not met, the only correct response is to stop and ask.*
