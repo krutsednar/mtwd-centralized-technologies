@@ -49,99 +49,120 @@ class AttendanceKiosk extends Component
 
     public function verifyAndRecord(string $photo): void
     {
-        $stored = Cache::get("face_kiosk_nonce_{$this->kioskId}");
+        $nonceKey = "face_kiosk_nonce_{$this->kioskId}";
+        $inFlightKey = "face_kiosk_inflight_{$this->kioskId}";
+
+        $stored = Cache::get($nonceKey);
         if (! $stored || $stored !== $this->nonce) {
+            // Nonce is missing or doesn't match. The common cause on a busy
+            // kiosk is a rapid double-tap: the first tap consumed the nonce
+            // and is still mid-processing. Detect that via the in-flight
+            // marker and silently swallow the duplicate so we don't surface
+            // a `replay_rejected` modal for an innocent re-tap.
+            if (Cache::get($inFlightKey)) {
+                return;
+            }
+
             $this->modalType = 'fail';
             $this->failReason = 'replay_rejected';
             $this->refreshNonce();
 
             return;
         }
-        Cache::forget("face_kiosk_nonce_{$this->kioskId}");
 
-        $base64 = preg_replace('/^data:image\/\w+;base64,/', '', $photo);
-        $bytes = base64_decode($base64);
-        $hash = hash('sha256', $bytes);
-
-        $svc = app(FaceBiometricService::class);
+        // Consume the nonce AND publish an in-flight marker. The marker is
+        // cleared in the finally block below so any state — success, failure,
+        // exception — releases the gate for the next scan.
+        Cache::forget($nonceKey);
+        Cache::put($inFlightKey, now()->toIso8601String(), now()->addSeconds(20));
 
         try {
-            $result = $svc->verify($base64);
-        } catch (FaceBiometricException $e) {
-            $this->logAudit(null, $e->reason, null, null, null, $hash, null, $bytes, $e->reason);
-            $this->handleFaceException($e);
-            $this->refreshNonce();
+            $base64 = preg_replace('/^data:image\/\w+;base64,/', '', $photo);
+            $bytes = base64_decode($base64);
+            $hash = hash('sha256', $bytes);
 
-            return;
-        } catch (\Throwable $e) {
-            Log::error('FaceKiosk verify error: '.$e->getMessage());
-            $this->modalType = 'fail';
-            $this->failReason = 'service_error';
-            $this->refreshNonce();
+            $svc = app(FaceBiometricService::class);
 
-            return;
-        }
+            try {
+                $result = $svc->verify($base64);
+            } catch (FaceBiometricException $e) {
+                $this->logAudit(null, $e->reason, null, null, null, $hash, null, $bytes, $e->reason);
+                $this->handleFaceException($e);
+                $this->refreshNonce();
 
-        if (! $result->matched || ! $result->profile) {
-            $this->logAudit(null, 'verify_fail', $result->score, $result->liveness, $result->quality, $hash, null, $bytes, $result->reason);
-            $this->modalType = 'fail';
-            $this->failReason = 'no_match';
-            $this->refreshNonce();
+                return;
+            } catch (\Throwable $e) {
+                Log::error('FaceKiosk verify error: '.$e->getMessage());
+                $this->modalType = 'fail';
+                $this->failReason = 'service_error';
+                $this->refreshNonce();
 
-            return;
-        }
+                return;
+            }
 
-        $profile = $result->profile;
-        $today = today()->toDateString();
-        $field = $this->resolveNextPhaseField($profile, $today);
+            if (! $result->matched || ! $result->profile) {
+                $this->logAudit(null, 'verify_fail', $result->score, $result->liveness, $result->quality, $hash, null, $bytes, $result->reason);
+                $this->modalType = 'fail';
+                $this->failReason = 'no_match';
+                $this->refreshNonce();
 
-        if ($field === null) {
-            $this->logAudit($profile->id, 'duplicate', $result->score, $result->liveness, $result->quality, $hash, null, $bytes, 'all_phases_recorded');
+                return;
+            }
+
+            $profile = $result->profile;
+            $today = today()->toDateString();
+            $field = $this->resolveNextPhaseField($profile, $today);
+
+            if ($field === null) {
+                $this->logAudit($profile->id, 'duplicate', $result->score, $result->liveness, $result->quality, $hash, null, $bytes, 'all_phases_recorded');
+                $this->employeeName = $profile->full_name;
+                $this->employeeNumber = $profile->employee_number;
+                $this->modalType = 'duplicate';
+                $this->refreshNonce();
+
+                return;
+            }
+
+            $time = now()->format('H:i:s');
+
+            FaceAttendance::updateOrCreate(
+                ['employee_number' => $profile->employee_number, 'attendance_date' => $today],
+                [
+                    'profile_id' => $profile->id,
+                    $field => $time,
+                    'match_score' => $result->score,
+                    'liveness_score' => $result->liveness,
+                    'quality_score' => $result->quality,
+                    'kiosk_id' => $this->kioskId,
+                    'verification_method' => 'face_v2',
+                    'top_match_margin' => $result->margin,
+                ]
+            );
+
+            Attendance::updateOrCreate(
+                ['employee_number' => $profile->employee_number, 'attendance_date' => $today],
+                [
+                    'profile_id' => $profile->id,
+                    $field => $time,
+                ]
+            );
+
+            $this->logAudit($profile->id, 'verify_ok', $result->score, $result->liveness, $result->quality, $hash, null, null, 'ok');
+
+            $profile->faceProfile?->update([
+                'last_verified_at' => now(),
+                'last_match_score' => $result->score,
+            ]);
+
             $this->employeeName = $profile->full_name;
             $this->employeeNumber = $profile->employee_number;
-            $this->modalType = 'duplicate';
+            $this->clockedTime = now()->format('h:i A');
+            $this->phaseRecorded = $this->fieldToLabel($field);
+            $this->modalType = 'success';
             $this->refreshNonce();
-
-            return;
+        } finally {
+            Cache::forget($inFlightKey);
         }
-
-        $time = now()->format('H:i:s');
-
-        FaceAttendance::updateOrCreate(
-            ['employee_number' => $profile->employee_number, 'attendance_date' => $today],
-            [
-                'profile_id' => $profile->id,
-                $field => $time,
-                'match_score' => $result->score,
-                'liveness_score' => $result->liveness,
-                'quality_score' => $result->quality,
-                'kiosk_id' => $this->kioskId,
-                'verification_method' => 'face_v2',
-                'top_match_margin' => $result->margin,
-            ]
-        );
-
-        Attendance::updateOrCreate(
-            ['employee_number' => $profile->employee_number, 'attendance_date' => $today],
-            [
-                'profile_id' => $profile->id,
-                $field => $time,
-            ]
-        );
-
-        $this->logAudit($profile->id, 'verify_ok', $result->score, $result->liveness, $result->quality, $hash, null, null, 'ok');
-
-        $profile->faceProfile?->update([
-            'last_verified_at' => now(),
-            'last_match_score' => $result->score,
-        ]);
-
-        $this->employeeName = $profile->full_name;
-        $this->employeeNumber = $profile->employee_number;
-        $this->clockedTime = now()->format('h:i A');
-        $this->phaseRecorded = $this->fieldToLabel($field);
-        $this->modalType = 'success';
-        $this->refreshNonce();
     }
 
     private function resolveNextPhaseField(Profile $profile, string $today): ?string

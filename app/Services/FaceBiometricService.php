@@ -48,7 +48,8 @@ class FaceBiometricService
         $query = $isEnrollment ? '?enrollment=1' : '';
 
         try {
-            $response = Http::timeout(30)
+            $response = Http::connectTimeout(2)
+                ->timeout(10)
                 ->withToken($this->token)
                 ->attach('file', $bytes, 'photo.jpg')
                 ->post("{$this->url}/extract{$query}");

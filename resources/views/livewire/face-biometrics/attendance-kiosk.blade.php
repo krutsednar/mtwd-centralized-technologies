@@ -29,9 +29,19 @@
                 </div>
             </div>
 
-            <div class="text-right">
+            <div class="flex flex-col items-end gap-1">
                 <div class="font-mono text-xl font-black text-black sm:text-3xl" x-text="currentTime"></div>
                 <div class="text-[10px] font-bold text-slate-800 uppercase tracking-widest">{{ now()->format('l, F j') }}</div>
+                <select x-show="cameras.length > 1"
+                        @change="switchCamera($event.target.value)"
+                        class="text-[9px] font-bold text-slate-700 uppercase tracking-wider bg-white border border-slate-300 rounded px-2 py-0.5 cursor-pointer">
+                    <template x-for="cam in cameras" :key="cam.deviceId">
+                        <option :value="cam.deviceId" :selected="cam.deviceId === selectedCameraId" x-text="cam.label"></option>
+                    </template>
+                </select>
+                <p x-show="cameraError"
+                   x-text="cameraError"
+                   class="text-[9px] font-bold text-red-600 uppercase tracking-wider text-right max-w-[220px]"></p>
             </div>
         </div>
 
@@ -211,12 +221,20 @@ document.addEventListener('alpine:init', () => {
         qualityLabel: '—',
         qualityOk: false,
         qualityOkSince: null,
+        qualityJitter: 0,
         modalAutoCloseTimer: null,
+        cameras: [],
+        selectedCameraId: null,
+        cameraError: '',
 
         async init() {
             this.updateClock();
             setInterval(() => this.updateClock(), 1000);
+            window.addEventListener('beforeunload', () => {
+                this.videoEl?.srcObject?.getTracks().forEach(t => t.stop());
+            });
             await this.loadModels();
+            await this.loadCameras();
             await this.startCamera();
             this.runDetectionLoop();
         },
@@ -233,19 +251,135 @@ document.addEventListener('alpine:init', () => {
             this.statusMsg = 'READY';
         },
 
-        async startCamera() {
-            this.videoEl    = document.getElementById('fb-video');
-            this.canvasEl   = document.getElementById('fb-overlay');
-            this.overlayCtx = this.canvasEl.getContext('2d');
+        /**
+         * Resolve the initial camera selection from URL param or localStorage,
+         * trigger the permission prompt via a short probe stream so that
+         * enumerateDevices() returns populated labels, then populate this.cameras.
+         *
+         * @returns {Promise<void>}
+         */
+        async loadCameras() {
+            const urlParam = new URLSearchParams(window.location.search).get('camera');
+            const stored   = localStorage.getItem('fb.attendance.cameraId');
+            this.selectedCameraId = urlParam || stored || null;
+
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 720, height: 720, facingMode: 'user' } });
+                // Probe with the already-selected camera if known; this avoids
+                // hitting Camera 1 (which may be in use by another window) when
+                // a different camera is already persisted for this session.
+                const probeConstraints = this.selectedCameraId
+                    ? { video: { deviceId: { exact: this.selectedCameraId } } }
+                    : { video: true };
+                const probe = await navigator.mediaDevices.getUserMedia(probeConstraints);
+                probe.getTracks().forEach(t => t.stop());
+            } catch (err) {
+                if (err.name === 'NotAllowedError') {
+                    this.cameraError = 'Camera blocked — grant permission in browser settings';
+                    this.statusMsg   = 'CAMERA BLOCKED';
+                } else if (err.name === 'NotFoundError') {
+                    this.cameraError = 'No camera detected — connect a USB camera';
+                    this.statusMsg   = 'NO CAMERA';
+                }
+                // NotReadableError / OverconstrainedError: continue silently —
+                // labels may already be available from a prior grant, and
+                // startCamera() will resolve the correct device.
+            }
+
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                this.cameras  = devices
+                    .filter(d => d.kind === 'videoinput')
+                    .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+
+                if (this.selectedCameraId && !this.cameras.find(c => c.deviceId === this.selectedCameraId)) {
+                    this.cameraError      = 'Saved camera not found — please pick another';
+                    this.selectedCameraId = null;
+                    localStorage.removeItem('fb.attendance.cameraId');
+                }
+            } catch (_) {
+                this.cameras = [];
+            }
+        },
+
+        async startCamera() {
+            this.videoEl    = this.videoEl    ?? document.getElementById('fb-video');
+            this.canvasEl   = this.canvasEl   ?? document.getElementById('fb-overlay');
+            this.overlayCtx = this.overlayCtx ?? this.canvasEl.getContext('2d');
+
+            const constraints = this.selectedCameraId
+                ? { video: { deviceId: { exact: this.selectedCameraId }, width: 720, height: 720 } }
+                : { video: { width: 720, height: 720, facingMode: 'user' } };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 this.videoEl.srcObject = stream;
-                await new Promise(r => this.videoEl.addEventListener('loadedmetadata', r));
+                await new Promise(r => this.videoEl.addEventListener('loadedmetadata', r, { once: true }));
                 this.canvasEl.width  = this.videoEl.videoWidth;
                 this.canvasEl.height = this.videoEl.videoHeight;
+                this.cameraError     = '';
             } catch (err) {
-                this.statusMsg = err.name === 'NotAllowedError' ? 'CAMERA DENIED' : 'CAMERA ERROR';
+                if (err.name === 'OverconstrainedError') {
+                    this.cameraError      = 'Saved camera not found — please pick another';
+                    this.statusMsg        = 'CAMERA NOT FOUND';
+                    this.selectedCameraId = null;
+                    localStorage.removeItem('fb.attendance.cameraId');
+                    await this.startCamera();
+                } else if (err.name === 'NotAllowedError') {
+                    this.cameraError = 'Camera blocked — grant permission in browser settings';
+                    this.statusMsg   = 'CAMERA BLOCKED';
+                } else if (err.name === 'NotReadableError') {
+                    // System default is in use (e.g. another kiosk window holds it).
+                    // Automatically try each enumerated camera until one opens.
+                    if (!this.selectedCameraId && this.cameras.length > 1) {
+                        for (const cam of this.cameras) {
+                            try {
+                                const stream = await navigator.mediaDevices.getUserMedia({
+                                    video: { deviceId: { exact: cam.deviceId }, width: 720, height: 720 },
+                                });
+                                this.videoEl.srcObject = stream;
+                                await new Promise(r => this.videoEl.addEventListener('loadedmetadata', r, { once: true }));
+                                this.canvasEl.width   = this.videoEl.videoWidth;
+                                this.canvasEl.height  = this.videoEl.videoHeight;
+                                this.cameraError      = '';
+                                this.selectedCameraId = cam.deviceId;
+                                localStorage.setItem('fb.attendance.cameraId', cam.deviceId);
+
+                                return;
+                            } catch (_) {
+                                // camera unavailable or in use; try next
+                            }
+                        }
+                    }
+                    this.cameraError = 'Camera in use by another application — close it and retry';
+                    this.statusMsg   = 'CAMERA IN USE';
+                } else {
+                    this.cameraError = `Camera error — ${err.message}`;
+                    this.statusMsg   = 'CAMERA ERROR';
+                }
             }
+        },
+
+        /**
+         * Switch to a different video input device without reloading the page.
+         * Stops current tracks, opens the new device, then resumes the detection loop.
+         *
+         * @param {string} deviceId  The deviceId of the target camera.
+         * @returns {Promise<void>}
+         */
+        async switchCamera(deviceId) {
+            if (!deviceId || deviceId === this.selectedCameraId) {
+                return;
+            }
+
+            this.processing = true;
+            this.videoEl?.srcObject?.getTracks().forEach(t => t.stop());
+            this.videoEl.srcObject = null;
+
+            this.selectedCameraId = deviceId;
+            localStorage.setItem('fb.attendance.cameraId', deviceId);
+
+            await this.startCamera();
+            this.processing = false;
         },
 
         async runDetectionLoop() {
@@ -301,11 +435,13 @@ document.addEventListener('alpine:init', () => {
             if (this.qualityOk && !this.processing && this.modal === null) {
                 if (this.qualityOkSince === null) {
                     this.qualityOkSince = Date.now();
-                } else if (Date.now() - this.qualityOkSince >= 600) {
+                    this.qualityJitter  = Math.floor(Math.random() * 300);
+                } else if (Date.now() - this.qualityOkSince >= 600 + this.qualityJitter) {
                     this.capture();
                 }
             } else if (!this.qualityOk) {
                 this.qualityOkSince = null;
+                this.qualityJitter  = 0;
             }
 
             this.statusMsg = this.qualityOk
@@ -322,33 +458,43 @@ document.addEventListener('alpine:init', () => {
             canvas.getContext('2d').drawImage(this.videoEl, 0, 0, 720, 720);
 
             const wire = Livewire.find(cfg.wireId);
-            wire.verifyAndRecord(canvas.toDataURL('image/jpeg', 0.85)).then(() => {
-                const type = wire.get('modalType');
-                if (type === 'success') {
-                    this.successName   = wire.get('employeeName')   ?? '';
-                    this.successNumber = wire.get('employeeNumber') ?? '';
-                    this.successTime   = wire.get('clockedTime')    ?? '';
-                    this.phaseRecorded = wire.get('phaseRecorded')  ?? '';
-                    document.getElementById('fb-success-sound').play().catch(() => {});
-                } else if (type === 'fail') {
-                    this.failMsg = wire.get('failReason') ?? 'Verification failed. Please try again.';
-                    document.getElementById('fb-try-again-sound').play().catch(() => {});
-                } else if (type === 'duplicate') {
-                    this.successName = wire.get('employeeName') ?? '';
-                    document.getElementById('fb-fail-sound').play().catch(() => {});
-                } else if (type === 'spoof') {
-                    document.getElementById('fb-try-again-sound').play().catch(() => {});
-                }
-                this.processing = false;
-                this.modal = type;
+            wire.verifyAndRecord(canvas.toDataURL('image/jpeg', 0.85))
+                .then(() => {
+                    const type = wire.get('modalType');
+                    if (type === 'success') {
+                        this.successName   = wire.get('employeeName')   ?? '';
+                        this.successNumber = wire.get('employeeNumber') ?? '';
+                        this.successTime   = wire.get('clockedTime')    ?? '';
+                        this.phaseRecorded = wire.get('phaseRecorded')  ?? '';
+                        document.getElementById('fb-success-sound').play().catch(() => {});
+                    } else if (type === 'fail') {
+                        this.failMsg = wire.get('failReason') ?? 'Verification failed. Please try again.';
+                        document.getElementById('fb-try-again-sound').play().catch(() => {});
+                    } else if (type === 'duplicate') {
+                        this.successName = wire.get('employeeName') ?? '';
+                        document.getElementById('fb-fail-sound').play().catch(() => {});
+                    } else if (type === 'spoof') {
+                        document.getElementById('fb-try-again-sound').play().catch(() => {});
+                    }
+                    this.processing = false;
+                    this.modal = type;
 
-                if (this.modalAutoCloseTimer) {
-                    clearTimeout(this.modalAutoCloseTimer);
-                }
-                if (type) {
-                    this.modalAutoCloseTimer = setTimeout(() => this.closeModal(), 3000);
-                }
-            });
+                    if (this.modalAutoCloseTimer) {
+                        clearTimeout(this.modalAutoCloseTimer);
+                    }
+                    if (type) {
+                        this.modalAutoCloseTimer = setTimeout(() => this.closeModal(), 3000);
+                    }
+                })
+                .catch(() => {
+                    // Livewire request was rejected (e.g. replay_rejected due to
+                    // concurrent scans on the same PHP session). Reset so the
+                    // detection loop can retry on the employee's next still frame.
+                    this.processing     = false;
+                    this.qualityOkSince = null;
+                    this.qualityJitter  = 0;
+                    this.statusMsg      = 'PLEASE TRY AGAIN';
+                });
         },
 
         closeModal() {
