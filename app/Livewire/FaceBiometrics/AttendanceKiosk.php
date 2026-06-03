@@ -224,7 +224,7 @@ class AttendanceKiosk extends Component
         ?string $rawBytes,
         string $reason
     ): void {
-        $persistEvents = ['verify_fail', 'spoof_detected', 'duplicate'];
+        $persistEvents = ['verify_fail', 'spoof_suspected', 'duplicate'];
         $path = null;
 
         if ($rawBytes && in_array($event, $persistEvents)) {

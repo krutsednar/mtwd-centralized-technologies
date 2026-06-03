@@ -27,6 +27,14 @@ Start-Sleep -Milliseconds 800
 Get-Process -Name nginx -ErrorAction SilentlyContinue |
     Stop-Process -Force -ErrorAction SilentlyContinue
 
+# Stop XAMPP Apache if running — it conflicts with nginx on port 443
+$apacheService = Get-Service -Name 'Apache2.4' -ErrorAction SilentlyContinue
+if ($apacheService -and $apacheService.Status -eq 'Running') {
+    Write-Host "Stopping XAMPP Apache2.4 (conflicts with nginx on port 443) ..." -ForegroundColor DarkGray
+    Stop-Service -Name 'Apache2.4' -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 800
+}
+
 # Kill anything holding the ports we need (skip 443 to avoid killing system processes)
 foreach ($port in @('8001', '7870')) {
     $pids = (netstat -ano | Select-String ":$port\s") -replace '.*\s(\d+)$','$1' |
@@ -84,7 +92,9 @@ if (-not (Test-Path $bioVenv)) {
     $bio = Start-Process -FilePath $bioVenv `
         -ArgumentList "-m", "uvicorn", "service:app", `
                       "--host", "127.0.0.1", "--port", "7870", `
-                      "--workers", "1", "--log-level", "info" `
+                      "--workers", "4", "--limit-concurrency", "4", `
+                      "--timeout-keep-alive", "10", "--backlog", "256", `
+                      "--log-level", "info" `
         -WorkingDirectory $BIO_DIR `
         -PassThru
     Start-Sleep -Milliseconds 1500
