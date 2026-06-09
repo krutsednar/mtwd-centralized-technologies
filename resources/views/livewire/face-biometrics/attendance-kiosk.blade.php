@@ -193,6 +193,27 @@
             </div>
         </div>
 
+        {{-- COOLDOWN MODAL --}}
+        <div x-show="modal === 'cooldown'"
+             x-transition:enter="transition ease-out duration-300"
+             class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-blue-950/95 backdrop-blur-xl">
+            <div class="bg-white rounded-[50px] shadow-2xl max-w-sm w-full p-12 text-center border-[12px] border-blue-500 relative overflow-hidden">
+                <div class="flex items-center justify-center w-24 h-24 mx-auto mb-8 text-blue-600 bg-blue-100 rounded-full">
+                    <svg class="w-14 h-14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <h3 class="text-3xl font-black tracking-tighter uppercase text-slate-900">Please Wait</h3>
+                <p class="mt-2 text-lg font-bold uppercase text-blue-600" x-text="successName"></p>
+                <p class="mt-1 mb-8 text-xs font-bold tracking-widest uppercase text-slate-500" x-text="cooldownMsg"></p>
+                <button @click="closeModal()"
+                        class="w-full py-3 text-sm font-black tracking-widest text-white uppercase bg-blue-600 hover:bg-blue-500 rounded-full transition">
+                    OK
+                </button>
+                <div class="absolute bottom-0 left-0 w-full h-3 bg-blue-500"></div>
+            </div>
+        </div>
+
     </div>{{-- end wire:ignore --}}
 
     <audio id="fb-success-sound"   src="{{ asset('audio/success-chime.mp3') }}" preload="auto"></audio>
@@ -217,6 +238,7 @@ document.addEventListener('alpine:init', () => {
         successTime: '',
         phaseRecorded: '',
         failMsg: '',
+        cooldownMsg: '',
         statusMsg: 'INITIALIZING…',
         qualityLabel: '—',
         qualityOk: false,
@@ -472,6 +494,10 @@ document.addEventListener('alpine:init', () => {
                         document.getElementById('fb-try-again-sound').play().catch(() => {});
                     } else if (type === 'duplicate') {
                         this.successName = wire.get('employeeName') ?? '';
+                        document.getElementById('fb-fail-sound').play().catch(() => {});
+                    } else if (type === 'cooldown') {
+                        this.successName  = wire.get('employeeName') ?? '';
+                        this.cooldownMsg  = wire.get('failReason')   ?? 'You have recently logged. Please try again after a few minutes.';
                         document.getElementById('fb-fail-sound').play().catch(() => {});
                     } else if (type === 'spoof') {
                         document.getElementById('fb-try-again-sound').play().catch(() => {});

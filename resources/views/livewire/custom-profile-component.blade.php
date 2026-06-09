@@ -10,6 +10,9 @@
             </div>
         </div>
     </x-filament-panels::form>
-
+    <div class="wrapper">
+  <header><!-- Local Header --></header>
+  <footer><!-- Local Footer --></footer>
+</div>
     <x-filament-actions::modals />
 </div>

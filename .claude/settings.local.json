@@ -4,7 +4,8 @@
       "Bash(composer install *)",
       "Bash(vendor/bin/pint --dirty)",
       "Bash(php artisan *)",
-      "Bash(ls \"D:/System Development/Production Environment/biometric-service\" 2>&1 | head -40)"
+      "Bash(ls \"D:/System Development/Production Environment/biometric-service\" 2>&1 | head -40)",
+      "PowerShell(.\\\\start.ps1)"
     ]
   },
   "enableAllProjectMcpServers": true,

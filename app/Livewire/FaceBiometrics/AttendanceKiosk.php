@@ -6,7 +6,7 @@ use App\Exceptions\FaceBiometricException;
 use App\Models\Attendance;
 use App\Models\FaceBiometrics\FaceAttendance;
 use App\Models\FaceBiometrics\FaceAuditLog;
-use App\Models\Profile;
+use App\Services\FaceBiometrics\AttendanceCooldown;
 use App\Services\FaceBiometricService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
@@ -44,7 +44,14 @@ class AttendanceKiosk extends Component
     private function refreshNonce(): void
     {
         $this->nonce = Str::random(40);
-        Cache::put("face_kiosk_nonce_{$this->kioskId}", $this->nonce, now()->addHours(8));
+
+        // A kiosk runs unattended and is routinely left open across an overnight
+        // idle gap that exceeds a single shift (observed gaps of 10+ hours, and
+        // 50+ hours over weekends). Keep the nonce alive long enough to span a
+        // normal overnight gap so the first scan of the day still matches. An
+        // expired nonce is no longer fatal — verifyAndRecord() now processes it
+        // instead of rejecting — but a generous TTL avoids the needless miss.
+        Cache::put("face_kiosk_nonce_{$this->kioskId}", $this->nonce, now()->addHours(24));
     }
 
     public function verifyAndRecord(string $photo): void
@@ -53,20 +60,21 @@ class AttendanceKiosk extends Component
         $inFlightKey = "face_kiosk_inflight_{$this->kioskId}";
 
         $stored = Cache::get($nonceKey);
-        if (! $stored || $stored !== $this->nonce) {
-            // Nonce is missing or doesn't match. The common cause on a busy
-            // kiosk is a rapid double-tap: the first tap consumed the nonce
-            // and is still mid-processing. Detect that via the in-flight
-            // marker and silently swallow the duplicate so we don't surface
-            // a `replay_rejected` modal for an innocent re-tap.
-            if (Cache::get($inFlightKey)) {
-                return;
-            }
 
-            $this->modalType = 'fail';
-            $this->failReason = 'replay_rejected';
-            $this->refreshNonce();
-
+        // The only scan we must refuse is a genuine concurrent double-tap: the
+        // first tap consumed the nonce and is still mid-processing, so the
+        // in-flight marker is present. Swallow that duplicate silently — no
+        // modal, no double record.
+        //
+        // A non-matching nonce *without* an in-flight marker is NOT a replay.
+        // It is a legitimate scan whose nonce we simply no longer hold: the
+        // kiosk sat idle past the cache TTL (an overnight or weekend gap), the
+        // cache was flushed by a deploy/restart, or the tab was reloaded. The
+        // old code rejected these as `replay_rejected`, which silently dropped
+        // the first employee's attendance every morning until the kiosk was
+        // "primed" — the bug behind "fails to capture before 7 AM". Those scans
+        // must be processed, so fall through and re-issue a nonce afterwards.
+        if ($stored !== $this->nonce && Cache::get($inFlightKey)) {
             return;
         }
 
@@ -111,13 +119,29 @@ class AttendanceKiosk extends Component
 
             $profile = $result->profile;
             $today = today()->toDateString();
-            $field = $this->resolveNextPhaseField($profile, $today);
+
+            $existing = FaceAttendance::where('employee_number', $profile->employee_number)
+                ->where('attendance_date', $today)
+                ->first();
+
+            $field = $this->resolveNextPhaseField($existing);
 
             if ($field === null) {
                 $this->logAudit($profile->id, 'duplicate', $result->score, $result->liveness, $result->quality, $hash, null, $bytes, 'all_phases_recorded');
                 $this->employeeName = $profile->full_name;
                 $this->employeeNumber = $profile->employee_number;
                 $this->modalType = 'duplicate';
+                $this->refreshNonce();
+
+                return;
+            }
+
+            if (app(AttendanceCooldown::class)->isActive($existing, now())) {
+                $this->logAudit($profile->id, 'cooldown', $result->score, $result->liveness, $result->quality, $hash, null, $bytes, 'recent_capture');
+                $this->employeeName = $profile->full_name;
+                $this->employeeNumber = $profile->employee_number;
+                $this->modalType = 'cooldown';
+                $this->failReason = AttendanceCooldown::MESSAGE;
                 $this->refreshNonce();
 
                 return;
@@ -165,12 +189,8 @@ class AttendanceKiosk extends Component
         }
     }
 
-    private function resolveNextPhaseField(Profile $profile, string $today): ?string
+    private function resolveNextPhaseField(?FaceAttendance $existing): ?string
     {
-        $existing = FaceAttendance::where('employee_number', $profile->employee_number)
-            ->where('attendance_date', $today)
-            ->first();
-
         if (! $existing || empty($existing->morning_in)) {
             return 'morning_in';
         }

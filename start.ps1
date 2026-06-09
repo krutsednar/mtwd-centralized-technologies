@@ -82,22 +82,33 @@ $queue = Start-Process -FilePath "php" `
     -PassThru
 
 # ── Face Biometrics Service ───────────────────────────────────────────────────
-$bio = $null
-$bioVenv = "$BIO_DIR\venv\Scripts\python.exe"
-if (-not (Test-Path $bioVenv)) {
-    Write-Host "WARNING: biometric-service venv not found." -ForegroundColor Yellow
-    Write-Host "         Run .\install.ps1 inside $BIO_DIR first." -ForegroundColor Yellow
-} else {
-    Write-Host "Starting Face Biometrics service on 127.0.0.1:7870 ..." -ForegroundColor Cyan
-    $bio = Start-Process -FilePath $bioVenv `
+$bio      = $null
+$bioReady = $false
+$bioVenv  = "$BIO_DIR\venv\Scripts\python.exe"
+$bioOut   = "$BIO_DIR\service.out.log"
+$bioErr   = "$BIO_DIR\service.err.log"
+
+# Launch uvicorn (4 workers) with stdout/stderr captured to log files so a crash
+# during model warm-up is diagnosable instead of silently disappearing.
+$startBio = {
+    Start-Process -FilePath $bioVenv `
         -ArgumentList "-m", "uvicorn", "service:app", `
                       "--host", "127.0.0.1", "--port", "7870", `
                       "--workers", "4", "--limit-concurrency", "4", `
                       "--timeout-keep-alive", "10", "--backlog", "256", `
                       "--log-level", "info" `
         -WorkingDirectory $BIO_DIR `
+        -RedirectStandardOutput $bioOut `
+        -RedirectStandardError $bioErr `
         -PassThru
-    Start-Sleep -Milliseconds 1500
+}
+
+if (-not (Test-Path $bioVenv)) {
+    Write-Host "WARNING: biometric-service venv not found." -ForegroundColor Yellow
+    Write-Host "         Run .\install.ps1 inside $BIO_DIR first." -ForegroundColor Yellow
+} else {
+    Write-Host "Starting Face Biometrics service on 127.0.0.1:7870 (4 workers warming) ..." -ForegroundColor Cyan
+    $bio = & $startBio
 }
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -110,14 +121,66 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$bioPid = if ($bio) { $bio.Id } else { "not started" }
+# ── Wait for the biometric service to answer /health ──────────────────────────
+# Each of the 4 uvicorn workers loads InsightFace buffalo_l (~590 MB) + the ONNX
+# liveness sessions, so the service needs ~30 s before it can serve /extract. The
+# npm build above overlapped most of that. Poll /health (no auth required) so we
+# only report success once it actually answers — and restart it once if it died
+# during the memory-heavy cold start. Without this gate the kiosk can hit
+# /extract before the workers are warm and fail with "service unreachable".
+if ($bio) {
+    Write-Host "Waiting for Face Biometrics service to become ready ..." -ForegroundColor Cyan
+    for ($attempt = 1; $attempt -le 2 -and -not $bioReady; $attempt++) {
+        $deadline = (Get-Date).AddSeconds(60)
+        while ((Get-Date) -lt $deadline) {
+            if ($bio.HasExited) {
+                Write-Host "Biometric service exited (code $($bio.ExitCode)) during warm-up." -ForegroundColor Yellow
+                break
+            }
+            try {
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:7870/health" -UseBasicParsing -TimeoutSec 3
+                if ($resp.StatusCode -eq 200) { $bioReady = $true; break }
+            } catch { }
+            Start-Sleep -Seconds 2
+        }
+
+        if (-not $bioReady -and $attempt -lt 2) {
+            Write-Host "Restarting Face Biometrics service (attempt 2) ..." -ForegroundColor Yellow
+            Get-Process -Name python -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -like "$BIO_DIR*" } |
+                Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 800
+            $bio = & $startBio
+        }
+    }
+
+    if ($bioReady) {
+        Write-Host "Face Biometrics service is ready." -ForegroundColor Green
+    } else {
+        Write-Host "WARNING: Face Biometrics service is NOT answering on 127.0.0.1:7870." -ForegroundColor Red
+        Write-Host "         Face scan / enrollment will fail until it is up." -ForegroundColor Red
+        Write-Host "         Check the log: $bioErr" -ForegroundColor Red
+    }
+}
+# ─────────────────────────────────────────────────────────────────────────────
+
+$bioStatus = if (-not $bio) {
+    "not started"
+} elseif ($bioReady) {
+    "ready (PID $($bio.Id))"
+} elseif ($bio.HasExited) {
+    "CRASHED - see $bioErr"
+} else {
+    "starting (PID $($bio.Id), not yet ready)"
+}
 
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Green
 Write-Host "  App running at https://mct.lan            " -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "Artisan PID : $($artisan.Id)   Queue PID: $($queue.Id)   Bio PID: $bioPid" -ForegroundColor DarkGray
+Write-Host "Artisan PID : $($artisan.Id)   Queue PID: $($queue.Id)" -ForegroundColor DarkGray
+Write-Host "Face Biometrics: $bioStatus" -ForegroundColor DarkGray
 Write-Host "Press Ctrl+C to stop all services." -ForegroundColor Yellow
 Write-Host ""
 
