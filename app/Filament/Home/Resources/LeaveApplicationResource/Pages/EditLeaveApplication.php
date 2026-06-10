@@ -1,8 +1,9 @@
 <?php
 
-namespace App\Filament\Hris\Resources\LeaveApplicationResource\Pages;
+namespace App\Filament\Home\Resources\LeaveApplicationResource\Pages;
 
-use App\Filament\Hris\Resources\LeaveApplicationResource;
+use App\Filament\Home\Resources\LeaveApplicationResource;
+use App\Filament\Hris\Resources\LeaveApplicationResource as HrisLeaveResource;
 use App\Models\LeaveApplication;
 use Filament\Actions;
 use Filament\Notifications\Notification;
@@ -15,14 +16,15 @@ class EditLeaveApplication extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            Actions\DeleteAction::make()
+                ->label('Withdraw')
+                ->visible(fn (): bool => $this->record->isPendingHrAction()),
         ];
     }
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        $errors = LeaveApplicationResource::wellnessErrors($this->data, $this->record->id);
-
+        $errors = HrisLeaveResource::wellnessErrors($this->data, $this->record->id);
         if (! empty($errors)) {
             Notification::make()
                 ->title('Wellness Leave not allowed')

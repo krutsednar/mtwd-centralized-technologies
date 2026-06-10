@@ -1,3 +1,3 @@
 <x-filament-panels::page>
-    @livewire('home.service-record-table')
+    {{ $this->table }}
 </x-filament-panels::page>

@@ -1,3 +1,3 @@
 <x-filament-panels::page>
-    @livewire('home.performance-cards')
+    {{ $this->table }}
 </x-filament-panels::page>

@@ -7,7 +7,7 @@ use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasAvatar;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\Storage;
@@ -44,7 +44,6 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         'password',
         'avatar',
         'is_approved',
-        'division_id',
         'avatar_url',
         // 'custom_fields',
     ];
@@ -75,9 +74,20 @@ class User extends Authenticatable implements FilamentUser, HasAvatar
         ];
     }
 
-    public function division(): BelongsTo
+    /**
+     * The employee profile for this user, linked by employee number (the User
+     * table has no profile foreign key). Division and other HR data are owned by
+     * the Profile, not the User.
+     */
+    public function profile(): HasOne
     {
-        return $this->belongsTo(Division::class);
+        return $this->hasOne(Profile::class, 'employee_number', 'employee_number');
+    }
+
+    /** Convenience accessor — the division is pulled from the employee's Profile. */
+    public function getDivisionAttribute(): ?Division
+    {
+        return $this->profile?->division;
     }
 
     // public function canAccessPanel(Panel $panel): bool

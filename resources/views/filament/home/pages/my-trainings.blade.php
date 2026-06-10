@@ -1,3 +1,3 @@
 <x-filament-panels::page>
-    @livewire('home.trainings-list')
+    {{ $this->table }}
 </x-filament-panels::page>

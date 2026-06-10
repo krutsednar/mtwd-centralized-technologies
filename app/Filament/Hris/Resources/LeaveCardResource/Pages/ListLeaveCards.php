@@ -3,7 +3,7 @@
 namespace App\Filament\Hris\Resources\LeaveCardResource\Pages;
 
 use App\Filament\Hris\Resources\LeaveCardResource;
-use App\Filament\Hris\Widgets\LeaveCardStats;
+use App\Filament\Hris\Resources\LeaveCardResource\Widgets\LeaveCardStats;
 use App\Models\Profile;
 use Filament\Actions;
 use Filament\Forms;
@@ -23,7 +23,7 @@ class ListLeaveCards extends ListRecords
         return [
             Actions\Action::make('selectEmployee')
                 ->label(fn () => $this->profileId
-                    ? 'Employee: ' . (Profile::find($this->profileId)?->full_name ?? '—')
+                    ? 'Employee: '.(Profile::find($this->profileId)?->full_name ?? '—')
                     : 'Select Employee'
                 )
                 ->icon('heroicon-o-user')
@@ -34,7 +34,7 @@ class ListLeaveCards extends ListRecords
                         ->options(
                             Profile::query()
                                 ->get()
-                                ->mapWithKeys(fn (Profile $p) => [$p->id => $p->employee_number . ' ' . $p->full_name])
+                                ->mapWithKeys(fn (Profile $p) => [$p->id => $p->employee_number.' '.$p->full_name])
                         )
                         ->default($this->profileId)
                         ->searchable()

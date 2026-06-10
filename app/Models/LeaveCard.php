@@ -19,28 +19,48 @@ class LeaveCard extends Model
         return LogOptions::defaults()->logFillable();
     }
 
+    /**
+     * Coalesce the NOT-NULL numeric columns to 0 on save. The create form can
+     * leave some of these empty (e.g. a "Beg Bal" entry), and an explicit null
+     * would override the column default and violate the not-null constraint.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (LeaveCard $card): void {
+            foreach ([
+                'duration', 'vl_earned', 'vl_with_pay', 'vl_without_pay',
+                'sl_earned', 'sl_with_pay', 'sl_without_pay',
+            ] as $column) {
+                if ($card->{$column} === null) {
+                    $card->{$column} = 0;
+                }
+            }
+        });
+    }
+
     public const CATEGORY_SELECT = [
         // Non-leave categories
-        'earned_leave'        => 'Earned Leave',
+        'earned_leave' => 'Earned Leave',
         'tardiness_undertime' => 'Tardiness / Undertime',
-        'excess_breaktime'    => 'Excess Breaktime',
-        'personal_pass_slip'  => 'Personal Pass Slip',
-        'adjustments'         => 'Adjustments',
+        'excess_breaktime' => 'Excess Breaktime',
+        'personal_pass_slip' => 'Personal Pass Slip',
+        'adjustments' => 'Adjustments',
         // Leave types (from LeaveApplication)
-        'vacation'            => 'Vacation Leave',
-        'mandatory_forced'    => 'Mandatory / Forced Leave',
-        'sick'                => 'Sick Leave',
-        'maternity'           => 'Maternity Leave',
-        'paternity'           => 'Paternity Leave',
-        'special_privilege'   => 'Special Privilege Leave',
-        'solo_parent'         => 'Solo Parent Leave',
-        'study'               => 'Study Leave',
-        'vawc'                => 'VAWC Leave',
-        'rehabilitation'      => 'Rehabilitation Privilege',
-        'special_women'       => 'Special Leave Benefits for Women',
-        'emergency_calamity'  => 'Emergency / Calamity Leave',
-        'adoption'            => 'Adoption Leave',
-        'others'              => 'Others',
+        'vacation' => 'Vacation Leave',
+        'mandatory_forced' => 'Mandatory / Forced Leave',
+        'sick' => 'Sick Leave',
+        'maternity' => 'Maternity Leave',
+        'paternity' => 'Paternity Leave',
+        'special_privilege' => 'Special Privilege Leave',
+        'solo_parent' => 'Solo Parent Leave',
+        'study' => 'Study Leave',
+        'vawc' => 'VAWC Leave',
+        'rehabilitation' => 'Rehabilitation Privilege',
+        'special_women' => 'Special Leave Benefits for Women',
+        'emergency_calamity' => 'Emergency / Calamity Leave',
+        'adoption' => 'Adoption Leave',
+        'wellness' => 'Wellness Leave',
+        'others' => 'Others',
     ];
 
     protected $fillable = [
@@ -62,13 +82,13 @@ class LeaveCard extends Model
     protected function casts(): array
     {
         return [
-            'date_applied'        => 'date',
-            'vl_earned'           => 'decimal:6',
-            'vl_with_pay'         => 'decimal:6',
-            'vl_without_pay'      => 'decimal:6',
-            'sl_earned'           => 'decimal:6',
-            'sl_with_pay'         => 'decimal:6',
-            'sl_without_pay'      => 'decimal:6',
+            'date_applied' => 'date',
+            'vl_earned' => 'decimal:6',
+            'vl_with_pay' => 'decimal:6',
+            'vl_without_pay' => 'decimal:6',
+            'sl_earned' => 'decimal:6',
+            'sl_with_pay' => 'decimal:6',
+            'sl_without_pay' => 'decimal:6',
         ];
     }
 

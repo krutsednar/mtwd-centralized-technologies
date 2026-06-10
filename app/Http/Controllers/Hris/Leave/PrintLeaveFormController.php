@@ -16,7 +16,14 @@ class PrintLeaveFormController extends Controller
 {
     public function __invoke(LeaveApplication $leaveApplication): View
     {
-        $leaveApplication->load('profile.division');
+        $leaveApplication->load([
+            'profile.division',
+            'inclusiveDates',
+            'certificationHrStaff',
+            'certificationHrChief',
+            'recommendationSignatory',
+            'approvalSignatory',
+        ]);
 
         return view('leave-print', compact('leaveApplication'));
     }

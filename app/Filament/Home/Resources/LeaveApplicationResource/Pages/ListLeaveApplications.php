@@ -1,0 +1,19 @@
+<?php
+
+namespace App\Filament\Home\Resources\LeaveApplicationResource\Pages;
+
+use App\Filament\Home\Resources\LeaveApplicationResource;
+use Filament\Actions;
+use Filament\Resources\Pages\ListRecords;
+
+class ListLeaveApplications extends ListRecords
+{
+    protected static string $resource = LeaveApplicationResource::class;
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Actions\CreateAction::make()->label('Apply for Leave'),
+        ];
+    }
+}

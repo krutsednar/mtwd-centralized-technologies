@@ -21,6 +21,13 @@ class ListFaceBiometricEnrollments extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Actions\Action::make('forEnrollment')
+                ->label('For Enrollment')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('success')
+                ->tooltip('Download employees not yet enrolled in face biometrics (employee number, name, division)')
+                ->action(fn (): \Symfony\Component\HttpFoundation\StreamedResponse => FaceBiometricEnrollmentResource::exportForEnrollment()),
+
             Actions\CreateAction::make(),
         ];
     }

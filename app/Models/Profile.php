@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\FaceBiometrics\FaceProfile;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -175,6 +177,19 @@ class Profile extends Model
     public function division(): BelongsTo
     {
         return $this->belongsTo(Division::class);
+    }
+
+    public function faceProfile(): HasOne
+    {
+        return $this->hasOne(FaceProfile::class);
+    }
+
+    /** The employee profile for the signed-in Home-panel user (linked by employee number). */
+    public static function forCurrentUser(): ?self
+    {
+        $user = auth()->user();
+
+        return $user ? static::query()->where('employee_number', $user->employee_number)->first() : null;
     }
 
     public function getFullNameAttribute(): string

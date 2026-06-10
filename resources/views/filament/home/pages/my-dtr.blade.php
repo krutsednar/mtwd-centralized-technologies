@@ -1,3 +1,3 @@
 <x-filament-panels::page>
-    @livewire('home.home-dtr-viewer')
+    {{ $this->table }}
 </x-filament-panels::page>

@@ -2,19 +2,15 @@
 
 namespace App\Filament\Admin\Resources;
 
-use Filament\Forms;
-use App\Models\User;
-use Filament\Tables;
-use App\Models\Division;
-use Filament\Forms\Form;
-use Filament\Tables\Table;
-use Filament\Resources\Resource;
-use Spatie\Permission\Models\Role;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use App\Filament\Admin\Resources\UserResource\Pages;
-use App\Filament\Admin\Resources\UserResource\RelationManagers;
+use App\Models\User;
+use Filament\Forms;
+use Filament\Forms\Form;
+use Filament\Resources\Resource;
+use Filament\Tables;
+use Filament\Tables\Table;
+use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Role;
 
 class UserResource extends Resource
 {
@@ -48,13 +44,6 @@ class UserResource extends Resource
                 Forms\Components\TextInput::make('address')
                     ->maxLength(255)
                     ->default(null),
-                // Forms\Components\TextInput::make('division_id')
-                //     ->maxLength(255)
-                //     ->default(null),
-                Forms\Components\Select::make('division_id')
-                                ->label('Division')
-                                ->options(Division::pluck('name', 'id'))
-                                ->default(null),
                 Forms\Components\TextInput::make('avatar')
                     ->maxLength(255)
                     ->default(null),
@@ -84,25 +73,25 @@ class UserResource extends Resource
         return $table
             ->headerActions([
                 Tables\Actions\Action::make('attachRole')
-                ->badge()
-                ->label('Attach User Role')
+                    ->badge()
+                    ->label('Attach User Role')
                 // ->icon()
-                ->action(function () {
-                    $role = Role::where('name', 'User')->first();
+                    ->action(function () {
+                        $role = Role::where('name', 'User')->first();
 
-                    // if (! $role) {
-                    //     filament()->notify('danger', 'Role "panel_user" does not exist.');
-                    //     return;
-                    // }
+                        // if (! $role) {
+                        //     filament()->notify('danger', 'Role "panel_user" does not exist.');
+                        //     return;
+                        // }
 
-                    // Get all users who don't already have the "panel_user" role
-                    User::whereDoesntHave('roles', function ($query) use ($role) {
-                        $query->where('name', $role->name);
-                    })->get()->each(function ($user) use ($role) {
-                        $user->assignRole($role);
-                    });
+                        // Get all users who don't already have the "panel_user" role
+                        User::whereDoesntHave('roles', function ($query) use ($role) {
+                            $query->where('name', $role->name);
+                        })->get()->each(function ($user) use ($role) {
+                            $user->assignRole($role);
+                        });
 
-                }),
+                    }),
             ])
             ->columns([
                 Tables\Columns\TextColumn::make('employee_number')
@@ -115,7 +104,8 @@ class UserResource extends Resource
                 //     ->searchable(),
                 // Tables\Columns\TextColumn::make('address')
                 //     ->searchable(),
-                Tables\Columns\TextColumn::make('division.name')
+                Tables\Columns\TextColumn::make('profile.division.name')
+                    ->label('Division')
                     ->searchable(),
                 Tables\Columns\TextColumn::make('avatar')
                     ->searchable(),

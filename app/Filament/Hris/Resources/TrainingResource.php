@@ -2,19 +2,22 @@
 
 namespace App\Filament\Hris\Resources;
 
-use Asmit\FilamentUpload\Forms\Components\AdvancedFileUpload;
 use App\Filament\Hris\Resources\TrainingResource\Pages;
 use App\Models\Profile;
 use App\Models\Training;
+use Asmit\FilamentUpload\Forms\Components\AdvancedFileUpload;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Support\Enums\MaxWidth;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class TrainingResource extends Resource
 {
@@ -44,7 +47,7 @@ class TrainingResource extends Resource
     {
         return Profile::query()
             ->get()
-            ->mapWithKeys(fn (Profile $p) => [$p->id => $p->employee_number . ' ' . $p->full_name])
+            ->mapWithKeys(fn (Profile $p) => [$p->id => $p->employee_number.' '.$p->full_name])
             ->toArray();
     }
 
@@ -119,6 +122,17 @@ class TrainingResource extends Resource
                     ->icon('fas-certificate')
                     ->slideOver()
                     ->infolist([
+                        Infolists\Components\Actions::make([
+                            Infolists\Components\Actions\Action::make('downloadAllCertificates')
+                                ->label('Download All Certificates (ZIP)')
+                                ->icon('heroicon-o-arrow-down-tray')
+                                ->color('success')
+                                ->visible(fn (Profile $record): bool => $record->trainings()
+                                    ->whereNotNull('attachment')
+                                    ->where('attachment', '!=', '')
+                                    ->exists())
+                                ->action(fn (Profile $record): ?BinaryFileResponse => static::downloadCertificatesZip($record)),
+                        ]),
                         Infolists\Components\RepeatableEntry::make('trainings')
                             ->label('')
                             ->schema([
@@ -185,14 +199,14 @@ class TrainingResource extends Resource
                             ->orderByDesc('from')
                             ->get()
                             ->map(fn (Training $t) => [
-                                'id'              => $t->id,
-                                'title'           => $t->title,
-                                'from'            => $t->from ? \Carbon\Carbon::parse($t->from)->toDateString() : null,
-                                'to'              => $t->to ? \Carbon\Carbon::parse($t->to)->toDateString() : null,
+                                'id' => $t->id,
+                                'title' => $t->title,
+                                'from' => $t->from ? \Carbon\Carbon::parse($t->from)->toDateString() : null,
+                                'to' => $t->to ? \Carbon\Carbon::parse($t->to)->toDateString() : null,
                                 'number_of_hours' => $t->number_of_hours,
-                                'conducted_by'    => $t->conducted_by,
-                                'ld_type'         => $t->ld_type,
-                                'attachment'      => $t->attachment,
+                                'conducted_by' => $t->conducted_by,
+                                'ld_type' => $t->ld_type,
+                                'attachment' => $t->attachment,
                             ])
                             ->values()
                             ->toArray(),
@@ -200,13 +214,13 @@ class TrainingResource extends Resource
                     ->action(function (array $data): void {
                         foreach ($data['trainings'] as $item) {
                             Training::find($item['id'])?->update([
-                                'title'           => $item['title'],
-                                'from'            => $item['from'],
-                                'to'              => $item['to'],
+                                'title' => $item['title'],
+                                'from' => $item['from'],
+                                'to' => $item['to'],
                                 'number_of_hours' => $item['number_of_hours'],
-                                'conducted_by'    => $item['conducted_by'],
-                                'ld_type'         => $item['ld_type'],
-                                'attachment'      => $item['attachment'],
+                                'conducted_by' => $item['conducted_by'],
+                                'ld_type' => $item['ld_type'],
+                                'attachment' => $item['attachment'],
                             ]);
                         }
                     })
@@ -219,6 +233,67 @@ class TrainingResource extends Resource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist->schema([]);
+    }
+
+    /**
+     * Bundle every uploaded training certificate for an employee into a single ZIP
+     * download. Certificates are named after their training title (de-duplicated),
+     * and trainings without a stored file are skipped. Returns null (with a
+     * warning notification) when the employee has no downloadable certificate.
+     */
+    public static function downloadCertificatesZip(Profile $record): ?BinaryFileResponse
+    {
+        $disk = Storage::disk(config('filament.default_filesystem_disk'));
+
+        $trainings = $record->trainings()
+            ->whereNotNull('attachment')
+            ->where('attachment', '!=', '')
+            ->orderByDesc('from')
+            ->get();
+
+        $zipPath = tempnam(sys_get_temp_dir(), 'certs_');
+        $zip = new \ZipArchive;
+        $zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
+
+        $added = 0;
+        $usedNames = [];
+
+        foreach ($trainings as $training) {
+            if (! $disk->exists($training->attachment)) {
+                continue;
+            }
+
+            $extension = pathinfo($training->attachment, PATHINFO_EXTENSION) ?: 'pdf';
+            $base = Str::slug($training->title ?: 'certificate') ?: 'certificate';
+            $name = "{$base}.{$extension}";
+
+            $counter = 1;
+            while (isset($usedNames[$name])) {
+                $name = $base.'-'.(++$counter).'.'.$extension;
+            }
+            $usedNames[$name] = true;
+
+            $zip->addFromString($name, $disk->get($training->attachment));
+            $added++;
+        }
+
+        $zip->close();
+
+        if ($added === 0) {
+            @unlink($zipPath);
+
+            Notification::make()
+                ->title('No certificates found')
+                ->body('This employee has no uploaded training certificates to download.')
+                ->warning()
+                ->send();
+
+            return null;
+        }
+
+        $filename = Str::slug($record->employee_number.' '.$record->full_name).'-certificates.zip';
+
+        return response()->download($zipPath, $filename)->deleteFileAfterSend(true);
     }
 
     public static function getRelations(): array

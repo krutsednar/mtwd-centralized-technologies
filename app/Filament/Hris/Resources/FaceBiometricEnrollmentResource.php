@@ -6,6 +6,7 @@ use App\Filament\Hris\Resources\FaceBiometricEnrollmentResource\Pages;
 use App\Filament\Hris\Resources\FaceBiometricEnrollmentResource\Widgets\FaceBiometricEnrollmentStats;
 use App\Models\FaceBiometrics\FaceAuditLog;
 use App\Models\FaceBiometrics\FaceProfile;
+use App\Models\Profile;
 use App\Services\FaceBiometricService;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -13,7 +14,9 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FaceBiometricEnrollmentResource extends Resource
 {
@@ -338,6 +341,53 @@ class FaceBiometricEnrollmentResource extends Resource
             'create' => Pages\CreateFaceBiometricEnrollment::route('/create'),
             'edit' => Pages\EditFaceBiometricEnrollment::route('/{record}/edit'),
         ];
+    }
+
+    /**
+     * Employees still awaiting face enrollment: every profile without a face
+     * profile that is already enrolled. Mirrors the "Total Unenrolled Employees"
+     * stat (Profile total minus enrolled face profiles), so the export count
+     * matches the figure shown on the page.
+     *
+     * @return Collection<int, Profile>
+     */
+    public static function unenrolledProfilesForExport(): Collection
+    {
+        return Profile::query()
+            ->whereDoesntHave('faceProfile', fn ($query) => $query->where('is_enrolled', true))
+            ->with('division:id,name')
+            ->orderBy('employee_number')
+            ->get(['id', 'employee_number', 'first_name', 'middle_name', 'surname', 'division_id']);
+    }
+
+    /**
+     * Stream the unenrolled-employee worklist as a CSV download. A UTF-8 BOM is
+     * prepended so names with diacritics (e.g. "Ubiña") render correctly when the
+     * file is opened in Excel.
+     */
+    public static function exportForEnrollment(): StreamedResponse
+    {
+        $profiles = static::unenrolledProfilesForExport();
+        $filename = 'for-enrollment-'.now()->format('Y-m-d').'.csv';
+
+        return response()->streamDownload(function () use ($profiles): void {
+            $handle = fopen('php://output', 'wb');
+
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, ['Employee Number', 'First Name', 'Middle Name', 'Last Name', 'Division']);
+
+            foreach ($profiles as $profile) {
+                fputcsv($handle, [
+                    $profile->employee_number,
+                    $profile->first_name,
+                    $profile->middle_name,
+                    $profile->surname,
+                    $profile->division?->name,
+                ]);
+            }
+
+            fclose($handle);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     public static function resizeForExtractStatic(string $fullPath): ?string

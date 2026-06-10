@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Filament\Hris\Widgets;
+namespace App\Filament\Hris\Resources\LeaveCardResource\Widgets;
 
 use App\Models\LeaveCard;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
@@ -29,22 +29,22 @@ class LeaveCardStats extends BaseWidget
 
         $query = LeaveCard::query()->where('profile_id', $this->profileId);
 
-        $vlEarned     = (float) (clone $query)->sum('vl_earned');
-        $vlWithPay    = (float) (clone $query)->sum('vl_with_pay');
-        $slEarned     = (float) (clone $query)->sum('sl_earned');
-        $slWithPay    = (float) (clone $query)->sum('sl_with_pay');
+        $vlEarned = (float) (clone $query)->sum('vl_earned');
+        $vlWithPay = (float) (clone $query)->sum('vl_with_pay');
+        $slEarned = (float) (clone $query)->sum('sl_earned');
+        $slWithPay = (float) (clone $query)->sum('sl_with_pay');
 
-        $vlCredits    = $vlEarned - $vlWithPay;
-        $slCredits    = $slEarned - $slWithPay;
+        $vlCredits = $vlEarned - $vlWithPay;
+        $slCredits = $slEarned - $slWithPay;
         $totalCredits = $vlCredits + $slCredits;
 
         return [
             Stat::make('Vacation Leave Credits', number_format($vlCredits, 3))
-                ->description('VL Earned: ' . number_format($vlEarned, 3) . ' | Used: ' . number_format($vlWithPay, 3))
+                ->description('VL Earned: '.number_format($vlEarned, 3).' | Used: '.number_format($vlWithPay, 3))
                 ->color($vlCredits >= 0 ? 'success' : 'danger'),
 
             Stat::make('Sick Leave Credits', number_format($slCredits, 3))
-                ->description('SL Earned: ' . number_format($slEarned, 3) . ' | Used: ' . number_format($slWithPay, 3))
+                ->description('SL Earned: '.number_format($slEarned, 3).' | Used: '.number_format($slWithPay, 3))
                 ->color($slCredits >= 0 ? 'info' : 'danger'),
 
             Stat::make('Total Available Leave Credits', number_format($totalCredits, 3))
